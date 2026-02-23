@@ -1,0 +1,1360 @@
+
+
+=== src\app\api\autocomplete\route.ts ===
+
+
+import { NextResponse } from 'next/server';
+
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
+
+export async function GET(request: Request) {
+    const { searchParams } = new URL(request.url);
+    const input = searchParams.get('input');
+
+    if (!input) {
+        return NextResponse.json({ error: 'Input parameter is required' }, { status: 400 });
+    }
+
+    if (!GOOGLE_MAPS_API_KEY) {
+        return NextResponse.json({ error: 'Google Maps API Key not configured' }, { status: 500 });
+    }
+
+    try {
+        // Use Google Places API (New) for Autocomplete
+        const url = 'https://places.googleapis.com/v1/places:autocomplete';
+
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
+            },
+            body: JSON.stringify({
+                input: input,
+                includedPrimaryTypes: ['locality', 'administrative_area_level_1', 'country'],
+            })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+            console.error('Google Autocomplete API Error:', data);
+            return NextResponse.json({ error: 'Failed to fetch autocomplete suggestions' }, { status: 500 });
+        }
+
+        const predictions = (data.suggestions || []).map((suggestion: any) => {
+            const placePrediction = suggestion.placePrediction;
+            if (!placePrediction) return null;
+
+            return {
+                place_id: placePrediction.placeId,
+                description: placePrediction.text.text,
+                main_text: placePrediction.structuredFormat?.mainText?.text || placePrediction.text.text,
+                secondary_text: placePrediction.structuredFormat?.secondaryText?.text || '',
+            };
+        }).filter(Boolean);
+
+        return NextResponse.json({ predictions });
+    } catch (error) {
+        console.error('API Autocomplete Error:', error);
+        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    }
+}
+
+
+=== src\app\api\enrich\route.ts ===
+
+
+import { NextResponse } from 'next/server';
+import pLimit from 'p-limit';
+import { getServiceSupabase } from '@/lib/supabase';
+import { updateLeadStatus } from '@/lib/leads';
+import { processEnrichment } from '@/lib/enrichment';
+import { Lead } from '@/types';
+
+// Set concurrency limit for enrichment processing
+const limit = pLimit(5); // Process up to 5 leads concurrently
+
+export async function POST(request: Request) {
+    try {
+        const body = await request.json();
+        const { leadIds } = body;
+
+        // Support both single leadId (legacy) and leadIds array
+        const idsToProcess: string[] = leadIds
+            ? Array.isArray(leadIds) ? leadIds : [leadIds]
+            : body.leadId ? [body.leadId] : [];
+
+        if (idsToProcess.length === 0) {
+            return NextResponse.json({ error: 'No lead IDs provided' }, { status: 400 });
+        }
+
+        const serviceClient = getServiceSupabase();
+
+        // Fetch the leads that need processing
+        const { data: leads, error } = await serviceClient
+            .from('leads')
+            .select('*')
+            .in('id', idsToProcess)
+            .eq('status', 'pending');
+
+        if (error || !leads || leads.length === 0) {
+            return NextResponse.json({ message: 'No pending leads found to process.', error });
+        }
+
+        // Process leads concurrently using p-limit
+        const enrichmentPromises = leads.map((lead: Lead) =>
+            limit(async () => {
+                try {
+                    // Update status to 'researching'
+                    await updateLeadStatus(lead.id, 'researching');
+
+                    // Trigger enrichment pipeline (Google Search, Cheerio, Gemini)
+                    const enrichmentData = await processEnrichment(lead);
+
+                    // Update status to 'verified' with new data
+                    await updateLeadStatus(lead.id, 'verified', enrichmentData);
+                    console.log(`Successfully enriched lead: ${lead.id}`);
+                } catch (error) {
+                    console.error(`Failed to enrich lead ${lead.id}:`, error);
+                    // Mark as failed if an unhandled error occurs
+                    await updateLeadStatus(lead.id, 'failed', {
+                        enrichment_summary: 'Processing failed due to internal error.'
+                    });
+                }
+            })
+        );
+
+        // Wait for all enrichments to complete
+        await Promise.allSettled(enrichmentPromises);
+
+        return NextResponse.json({
+            message: 'Enrichment jobs completed',
+            processed: leads.length
+        });
+    } catch (error: any) {
+        console.error('API Enrich Error:', error);
+        return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+    }
+}
+
+
+=== src\app\api\geocode\route.ts ===
+
+
+import { NextResponse } from 'next/server';
+
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
+
+export async function GET(request: Request) {
+    const { searchParams } = new URL(request.url);
+    const placeId = searchParams.get('placeId');
+
+    if (!placeId) {
+        return NextResponse.json({ error: 'placeId parameter is required' }, { status: 400 });
+    }
+
+    if (!GOOGLE_MAPS_API_KEY) {
+        return NextResponse.json({ error: 'Google Maps API Key not configured' }, { status: 500 });
+    }
+
+    try {
+        const url = `https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}?fields=location`;
+
+        const res = await fetch(url, {
+            headers: {
+                'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
+            }
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+            console.error('Google Places (New) API Error:', data);
+            return NextResponse.json({ error: 'Failed to fetch place details' }, { status: 500 });
+        }
+
+        const location = data.location;
+        if (!location || !location.latitude || !location.longitude) {
+            return NextResponse.json({ error: 'No location found for place ID' }, { status: 404 });
+        }
+
+        return NextResponse.json({
+            lat: location.latitude,
+            lng: location.longitude
+        });
+    } catch (error) {
+        console.error('API Geocode Error:', error);
+        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    }
+}
+
+
+=== src\app\api\search\route.ts ===
+
+
+import { NextResponse } from 'next/server';
+import { upsertLead, deleteAllLeads } from '@/lib/leads';
+
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+export async function POST(request: Request) {
+    try {
+        const body = await request.json();
+        const { query, latitude, longitude, radius = 5000 } = body;
+
+        if (!query || !latitude || !longitude) {
+            return NextResponse.json(
+                { error: 'Missing required parameters: query, latitude, longitude' },
+                { status: 400 }
+            );
+        }
+
+        // Wipe the database of previous search results for a clean slate
+        await deleteAllLeads();
+
+        const lat = parseFloat(latitude);
+        const lng = parseFloat(longitude);
+        const r = parseFloat(radius);
+
+        // Google 'locationRestriction' only supports 'rectangle' for TextSearch.
+        // We must convert the circle radius (in meters) to a bounding box.
+        // 1 degree of latitude is approximately 111,320 meters.
+        const latDelta = Math.abs(r / 111320);
+        const lngDelta = Math.abs(r / (111320 * Math.cos(lat * Math.PI / 180)));
+
+        const minLat = lat - latDelta;
+        const maxLat = lat + latDelta;
+        const minLng = lng - lngDelta;
+        const maxLng = lng + lngDelta;
+
+        // Call Google Places API New (Text Search)
+        const url = 'https://places.googleapis.com/v1/places:searchText';
+        const payload = {
+            textQuery: query,
+            locationRestriction: {
+                rectangle: {
+                    low: {
+                        latitude: Math.min(minLat, maxLat),
+                        longitude: Math.min(minLng, maxLng),
+                    },
+                    high: {
+                        latitude: Math.max(minLat, maxLat),
+                        longitude: Math.max(minLng, maxLng),
+                    }
+                },
+            },
+            languageCode: 'en',
+        };
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY!,
+                'X-Goog-FieldMask': 'places.id,places.displayName,places.name,places.formattedAddress,places.location,places.websiteUri,places.nationalPhoneNumber',
+            },
+            body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Google Places API Error:', errorText);
+            return NextResponse.json({ error: 'Failed to fetch places from Google Maps' }, { status: 500 });
+        }
+
+        const data = await response.json();
+        const places = data.places || [];
+
+        const insertedLeads = [];
+        const insertionErrors: any[] = [];
+
+        // Save each place to Supabase leads table
+        for (const place of places) {
+            // Google sometimes returns the address in displayName for some businesses.
+            // Try to extract the cleanest name possible.
+            const rawName = place.displayName?.text || place.name || 'Unknown Business';
+
+            if (!place.id || rawName === 'Unknown Business') continue;
+
+            const leadData = {
+                place_id: place.id,
+                business_name: rawName,
+                address: place.formattedAddress || 'No address provided',
+                latitude: place.location?.latitude || latitude,
+                longitude: place.location?.longitude || longitude,
+                website: place.websiteUri || null,
+                phone: place.nationalPhoneNumber || null,
+                status: 'pending' as const,
+            };
+
+            try {
+                const lead = await upsertLead(leadData);
+                insertedLeads.push(lead);
+            } catch (err: any) {
+                console.error(`Failed to upsert lead for place ${place.id}:`, err);
+                insertionErrors.push({ place_id: place.id, error: err.message || err.toString() });
+            }
+        }
+
+        if (insertedLeads.length > 0) {
+            // [AI ENRICHMENT REMOVED]
+            // We NO LONGER auto-trigger the background worker.
+            // Users will manually trigger enrichment individually from the UI.
+            console.log(`Saved ${insertedLeads.length} leads. Awaiting manual enrichment.`);
+        }
+
+        return NextResponse.json({
+            message: 'Search completed',
+            totalFound: places.length,
+            inserted: insertedLeads.length,
+            errors: insertionErrors.length > 0 ? insertionErrors : undefined
+        });
+
+    } catch (error: any) {
+        console.error('Search API Error:', error);
+        return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+    }
+}
+
+
+=== src\app\globals.css ===
+
+
+@import 'tailwindcss';
+
+@import 'leaflet/dist/leaflet.css';
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: Arial, Helvetica, sans-serif;
+  overflow-x: hidden;
+}
+
+/* Fix Leaflet marker icons not loading in React */
+.leaflet-default-icon-path {
+  background-image: url('https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png');
+}
+
+
+=== src\app\layout.tsx ===
+
+
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+import "./globals.css";
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "Create Next App",
+  description: "Generated by create next app",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="en">
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+      >
+        {children}
+      </body>
+    </html>
+  );
+}
+
+
+=== src\app\page.tsx ===
+
+
+import Dashboard from '@/components/Dashboard';
+
+export default function Home() {
+  return (
+    <main className="min-h-screen bg-white text-neutral-900">
+      <Dashboard />
+    </main>
+  );
+}
+
+
+=== src\components\Dashboard.tsx ===
+
+
+'use client';
+
+import { useState, useEffect, useRef } from 'react';
+import { useLeads } from '@/hooks/useLeads';
+import MapWrapper from '@/components/MapWrapper';
+import LeadList from '@/components/LeadList';
+import { Search, MapPin } from 'lucide-react';
+
+export default function Dashboard() {
+    const { leads, loading, refetch } = useLeads();
+    const [query, setQuery] = useState('marketing agency'); // Default search
+    const [locationText, setLocationText] = useState('San Francisco, CA, USA');
+    const [predictions, setPredictions] = useState<any[]>([]);
+    const [showDropdown, setShowDropdown] = useState(false);
+    const [isSearching, setIsSearching] = useState(false);
+
+    // Default Map Center & Bounds
+    const [mapCenter, setMapCenter] = useState<{ lat: number, lng: number } | null>(null);
+    const [mapBounds, setMapBounds] = useState({ lat: 37.7749, lng: -122.4194, radius: 5000 });
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    // Close dropdown on outside click
+    useEffect(() => {
+        function handleClickOutside(event: MouseEvent) {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setShowDropdown(false);
+            }
+        }
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    // Fetch Autocomplete Predictions
+    useEffect(() => {
+        if (!locationText || locationText.length < 3 || !showDropdown) {
+            setPredictions([]);
+            return;
+        }
+
+        const fetchPredictions = async () => {
+            try {
+                const res = await fetch(`/api/autocomplete?input=${encodeURIComponent(locationText)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setPredictions(data.predictions || []);
+                }
+            } catch (err) {
+                console.error("Autocomplete failed", err);
+            }
+        };
+
+        const timer = setTimeout(fetchPredictions, 300); // Debounce
+        return () => clearTimeout(timer);
+    }, [locationText, showDropdown]);
+
+    const handleSelectLocation = async (placeId: string, description: string) => {
+        setLocationText(description);
+        setShowDropdown(false);
+        setPredictions([]);
+
+        // Geocode to get lat/lng for the map
+        try {
+            const res = await fetch(`/api/geocode?placeId=${placeId}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.lat && data.lng) {
+                    setMapCenter({ lat: data.lat, lng: data.lng });
+                }
+            }
+        } catch (err) {
+            console.error("Geocoding failed", err);
+        }
+    };
+
+    const handleSearchArea = async (lat: number, lng: number, radius: number) => {
+        if (!query) return alert('Please enter a search query first');
+
+        setIsSearching(true);
+        // Force the UI Dropdown to close and reset old state
+        setShowDropdown(false);
+        setPredictions([]);
+
+        try {
+            const res = await fetch('/api/search', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    query,
+                    latitude: lat,
+                    longitude: lng,
+                    radius
+                })
+            });
+
+            if (!res.ok) {
+                throw new Error('Search failed');
+            }
+
+            // Supabase Realtime might be disabled on the leads table,
+            // so we manually pull the new list to guarantee the UI updates instantly.
+            await refetch();
+        } catch (error) {
+            console.error(error);
+            alert('Search failed. Check console for details.');
+        } finally {
+            setIsSearching(false);
+        }
+    };
+
+    return (
+        <div className="flex h-screen w-full bg-neutral-100 overflow-hidden">
+            {/* Sidebar / List View */}
+            <div className="w-1/3 min-w-[400px] h-full flex flex-col bg-white border-r border-neutral-200 z-10 shadow-xl">
+                <div className="p-6 border-b border-neutral-100 bg-white">
+                    <h1 className="text-2xl font-bold text-neutral-900 tracking-tight">Nexus Lead Engine</h1>
+                    <p className="text-sm text-neutral-500 mt-1 mb-4">Find & enrich local businesses in real-time</p>
+
+                    <div className="space-y-3">
+                        <div className="relative flex items-center">
+                            <Search className="absolute left-3 text-neutral-400" size={18} />
+                            <input
+                                type="text"
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                                placeholder="Industry (e.g. coffee shop, plumbers)"
+                                className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+                            />
+                        </div>
+
+                        <div className="relative flex items-center" ref={dropdownRef}>
+                            <MapPin className="absolute left-3 text-neutral-400" size={18} />
+                            <input
+                                type="text"
+                                value={locationText}
+                                onChange={(e) => {
+                                    setLocationText(e.target.value);
+                                    setShowDropdown(true);
+                                }}
+                                onFocus={() => setShowDropdown(true)}
+                                placeholder="Location (Country, State, City)"
+                                className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+                            />
+
+                            {/* Autocomplete Dropdown */}
+                            {showDropdown && predictions.length > 0 && (
+                                <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-neutral-200 rounded-lg shadow-xl max-h-60 overflow-y-auto z-50">
+                                    {predictions.map((p) => (
+                                        <button
+                                            key={p.place_id}
+                                            onClick={() => handleSelectLocation(p.place_id, p.description)}
+                                            className="w-full text-left px-4 py-3 hover:bg-neutral-50 border-b border-neutral-100 last:border-0 focus:outline-none transition-colors"
+                                        >
+                                            <div className="text-sm font-medium text-neutral-900">{p.main_text}</div>
+                                            {p.secondary_text && <div className="text-xs text-neutral-500 mt-0.5">{p.secondary_text}</div>}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        <button
+                            onClick={() => handleSearchArea(mapBounds.lat, mapBounds.lng, mapBounds.radius)}
+                            disabled={isSearching}
+                            className="w-full mt-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
+                        >
+                            {isSearching ? (
+                                <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                            ) : (
+                                <Search size={18} />
+                            )}
+                            {isSearching ? 'Searching...' : 'Search Leads'}
+                        </button>
+                    </div>
+                </div>
+
+                <div className="flex-1 overflow-auto bg-neutral-50">
+                    <LeadList leads={leads} loading={loading} isSearching={isSearching} />
+                </div>
+            </div>
+
+            {/* Map View */}
+            <div className="flex-1 h-full relative z-0">
+                <MapWrapper
+                    onSearchArea={handleSearchArea}
+                    center={mapCenter}
+                    onBoundsChange={(lat, lng, radius) => setMapBounds({ lat, lng, radius })}
+                />
+                {isSearching && (
+                    <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur pb-2 pt-2 px-4 rounded-full shadow-lg text-sm font-medium flex items-center gap-2 z-[1000] border border-neutral-100">
+                        <div className="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
+                        Searching Area...
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+
+=== src\components\LeadList.tsx ===
+
+
+'use client';
+
+import { Lead } from '@/types';
+import { Loader2, CheckCircle2, XCircle, Clock, MoreHorizontal, MapPin, Globe, Phone, Mail, Linkedin } from 'lucide-react';
+import { useState } from 'react';
+
+export default function LeadList({ leads, loading, isSearching }: { leads: Lead[], loading: boolean, isSearching: boolean }) {
+    const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+    const [enrichingIds, setEnrichingIds] = useState<Set<string>>(new Set());
+
+    const handleEnrich = async (leadId: string) => {
+        setEnrichingIds(prev => new Set(prev).add(leadId));
+        try {
+            const res = await fetch('/api/enrich', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ leadIds: [leadId] }),
+            });
+            if (!res.ok) throw new Error('Enrichment failed');
+        } catch (error) {
+            console.error('Failed to trigger enrichment:', error);
+            alert('Failed to trigger enrichment. Check console.');
+        } finally {
+            setEnrichingIds(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(leadId);
+                return newSet;
+            });
+        }
+    };
+
+    if (loading && leads.length === 0) {
+        return <div className="p-8 text-center text-neutral-400 animate-pulse">Loading leads database...</div>;
+    }
+
+    if (!loading && leads.length === 0 && !isSearching) {
+        return (
+            <div className="h-full flex flex-col items-center justify-center p-8 text-neutral-400">
+                <MapPin size={48} className="mb-4 text-neutral-200" />
+                <p className="text-center font-medium text-neutral-500">No leads found yet.</p>
+                <p className="text-center text-sm mt-1">Move the map and click "Search This Area" to begin.</p>
+            </div>
+        );
+    }
+
+    const getStatusIcon = (status: string) => {
+        switch (status) {
+            case 'verified': return <CheckCircle2 className="text-emerald-500" size={16} />;
+            case 'researching': return <Loader2 className="text-blue-500 animate-spin" size={16} />;
+            case 'failed': return <XCircle className="text-red-500" size={16} />;
+            case 'pending': default: return <Clock className="text-neutral-400" size={16} />;
+        }
+    };
+
+    const statusColors = {
+        verified: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        researching: 'bg-blue-50 text-blue-700 border-blue-200',
+        failed: 'bg-red-50 text-red-700 border-red-200',
+        pending: 'bg-neutral-100 text-neutral-600 border-neutral-200'
+    };
+
+    return (
+        <div className="relative h-full flex flex-col">
+            <div className="flex-1 overflow-y-auto w-full flex flex-col shadow-inner">
+                {leads.map((lead) => (
+                    <div
+                        key={lead.id}
+                        onClick={() => setSelectedLead(lead)}
+                        className="group px-6 py-4 border-b border-neutral-200/60 bg-white hover:bg-neutral-50 cursor-pointer transition-colors"
+                    >
+                        <div className="flex items-start justify-between">
+                            <div className="w-[80%]">
+                                <h3 className="font-semibold text-neutral-900 group-hover:text-blue-600 transition-colors truncate">
+                                    {lead.business_name}
+                                </h3>
+                                <p className="text-xs text-neutral-500 truncate mt-1">{lead.address}</p>
+                            </div>
+                            <div className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${statusColors[lead.status]}`}>
+                                {getStatusIcon(lead.status)}
+                                <span className="capitalize">{lead.status}</span>
+                            </div>
+                        </div>
+
+                        {/* Quick overview of enriched data if verified */}
+                        {lead.status === 'verified' && (
+                            <div className="mt-3 flex items-center gap-4 text-xs font-medium text-neutral-600 bg-neutral-50/50 p-2 rounded-md border border-neutral-100">
+                                {lead.decision_maker_name ? (
+                                    <span className="flex items-center gap-1.5 text-neutral-800"><CheckCircle2 size={13} className="text-emerald-500" />{lead.decision_maker_name}</span>
+                                ) : (
+                                    <span className="text-neutral-400">No contact found</span>
+                                )}
+
+                                {lead.contact_email && (
+                                    <span className="flex items-center gap-1"><Mail size={12} />{lead.contact_email}</span>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                ))}
+            </div>
+
+            {/* Slide-over Details Panel */}
+            {selectedLead && (
+                <div className="absolute inset-0 bg-white z-50 flex flex-col shadow-[-10px_0_30px_rgba(0,0,0,0.05)] animate-in slide-in-from-right-full">
+                    <div className="px-6 py-5 border-b border-neutral-100 bg-neutral-50/50 flex items-center justify-between shadow-sm">
+                        <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-full bg-white border shadow-sm ${statusColors[selectedLead.status]}`}>
+                                {getStatusIcon(selectedLead.status)}
+                            </div>
+                            <div>
+                                <h2 className="font-bold text-lg text-neutral-900 tracking-tight">{selectedLead.business_name}</h2>
+                                <div className="text-xs font-semibold text-neutral-500 uppercase tracking-widest">{selectedLead.status}</div>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => setSelectedLead(null)}
+                            className="p-2 bg-white hover:bg-neutral-200 rounded-full transition-colors border shadow-sm"
+                        >
+                            <XCircle size={20} className="text-neutral-500" />
+                        </button>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
+
+                        <div className="space-y-4">
+                            <h4 className="text-xs font-bold text-neutral-400 tracking-wider uppercase">Business Info</h4>
+                            <div className="bg-neutral-50 p-4 rounded-xl border border-neutral-100 space-y-3 font-medium text-sm">
+                                <div className="flex items-start gap-3">
+                                    <MapPin size={16} className="text-neutral-400 mt-0.5 shrink-0" />
+                                    <span className="text-neutral-700">{selectedLead.address}</span>
+                                </div>
+                                {selectedLead.phone && (
+                                    <div className="flex items-center gap-3">
+                                        <Phone size={16} className="text-neutral-400 shrink-0" />
+                                        <span className="text-neutral-700">{selectedLead.phone}</span>
+                                    </div>
+                                )}
+                                {selectedLead.website && (
+                                    <div className="flex items-center gap-3">
+                                        <Globe size={16} className="text-neutral-400 shrink-0" />
+                                        <a href={selectedLead.website} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline truncate">
+                                            {selectedLead.website}
+                                        </a>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="space-y-4">
+                            <h4 className="text-xs font-bold text-neutral-400 tracking-wider uppercase">AI Enrichment Data</h4>
+                            <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm space-y-4">
+                                {selectedLead.status === 'researching' || enrichingIds.has(selectedLead.id) ? (
+                                    <div className="flex bg-blue-50 text-blue-700 p-4 rounded-lg items-center gap-3 text-sm font-medium">
+                                        <Loader2 size={18} className="animate-spin shrink-0" />
+                                        Gemini is currently finding the decision makers, socials, and contact info...
+                                    </div>
+                                ) : selectedLead.status === 'pending' ? (
+                                    <div className="flex flex-col items-center justify-center p-6 bg-neutral-50 rounded-lg text-center gap-3 border border-neutral-100">
+                                        <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm border border-neutral-200">
+                                            <img src="https://www.gstatic.com/lamda/images/gemini_sparkle_v002_d4735304ff6292a690345.svg" width="24" alt="Gemini" />
+                                        </div>
+                                        <div>
+                                            <h4 className="font-semibold text-neutral-900">Unlock Hidden Details</h4>
+                                            <p className="text-sm text-neutral-500 mt-1 max-w-xs mx-auto">Click below to deploy Gemini AI to search for decision makers, emails, and social profiles for this business.</p>
+                                        </div>
+                                        <button
+                                            onClick={() => handleEnrich(selectedLead.id)}
+                                            className="mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-medium py-2.5 px-6 rounded-lg flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95"
+                                        >
+                                            <img src="https://www.gstatic.com/lamda/images/gemini_sparkle_v002_d4735304ff6292a690345.svg" width="16" alt="Gemini" className="brightness-0 invert" />
+                                            Enrich with AI
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <div className="text-xs text-neutral-400 font-medium mb-1">Decision Maker</div>
+                                                <div className="font-semibold text-neutral-900 border-b border-neutral-100 pb-2">
+                                                    {selectedLead.decision_maker_name || <span className="text-neutral-300 font-normal">Not found</span>}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <div className="text-xs text-neutral-400 font-medium mb-1">Role</div>
+                                                <div className="font-semibold text-neutral-900 border-b border-neutral-100 pb-2">
+                                                    {selectedLead.decision_maker_role || <span className="text-neutral-300 font-normal">Not found</span>}
+                                                </div>
+                                            </div>
+                                            <div className="col-span-2">
+                                                <div className="text-xs text-neutral-400 font-medium mb-1">Direct Contact Email</div>
+                                                <div className="font-semibold text-neutral-900 border-b border-neutral-100 pb-2 flex items-center gap-2">
+                                                    <Mail size={14} className="text-neutral-400" />
+                                                    {selectedLead.contact_email ? (
+                                                        <a href={`mailto:${selectedLead.contact_email}`} className="text-blue-600 hover:underline">{selectedLead.contact_email}</a>
+                                                    ) : <span className="text-neutral-300 font-normal">Not found</span>}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {selectedLead.enrichment_summary && (
+                                            <div>
+                                                <div className="text-xs text-neutral-400 font-medium mb-1.5 flex items-center gap-1.5">
+                                                    <img src="https://www.gstatic.com/lamda/images/gemini_sparkle_v002_d4735304ff6292a690345.svg" width="14" alt="Gemini" />
+                                                    AI Summary
+                                                </div>
+                                                <div className="text-sm text-neutral-700 leading-relaxed bg-neutral-50 p-3 rounded-lg">
+                                                    {selectedLead.enrichment_summary}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {selectedLead.social_profiles && Object.keys(selectedLead.social_profiles).length > 0 && (
+                                            <div className="pt-2">
+                                                <div className="text-xs text-neutral-400 font-medium mb-2">Social Profiles</div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {Object.entries(selectedLead.social_profiles).map(([network, url]) => (
+                                                        <a
+                                                            key={network}
+                                                            href={url as string}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="px-3 py-1.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-semibold rounded-full capitalize flex items-center gap-1.5 transition-colors"
+                                                        >
+                                                            {network === 'linkedin' ? <Linkedin size={12} /> : <Globe size={12} />}
+                                                            {network}
+                                                        </a>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+
+=== src\components\Map.tsx ===
+
+
+'use client';
+
+import { useState, useEffect } from 'react';
+import { MapContainer, TileLayer, useMapEvents, useMap } from 'react-leaflet';
+import { Search } from 'lucide-react';
+import L from 'leaflet';
+
+// Fix for missing marker icons in react-leaflet
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+    iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+    iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
+
+function MapEvents({ onMoveEnd }: { onMoveEnd: (map: L.Map) => void }) {
+    const map = useMapEvents({
+        moveend: () => onMoveEnd(map),
+    });
+    return null;
+}
+
+function MapUpdater({ center }: { center?: { lat: number, lng: number } | null }) {
+    const map = useMap();
+    useEffect(() => {
+        if (center) {
+            map.flyTo([center.lat, center.lng], 13, { duration: 1.5 });
+        }
+    }, [center, map]);
+    return null;
+}
+
+export interface MapProps {
+    onSearchArea: (lat: number, lng: number, radius: number) => void;
+    onBoundsChange?: (lat: number, lng: number, radius: number) => void;
+    center?: { lat: number, lng: number } | null;
+}
+
+export default function Map({
+    onSearchArea,
+    onBoundsChange,
+    center
+}: MapProps) {
+    const [mapRef, setMapRef] = useState<L.Map | null>(null);
+
+    const handleSearch = () => {
+        if (!mapRef) return;
+        const center = mapRef.getCenter();
+        // Rough estimate of radius based on zoom level. 
+        // Usually radius = bounds distance / 2
+        const bounds = mapRef.getBounds();
+        const radiusInMeters = center.distanceTo(bounds.getNorthWest()) * 0.5;
+
+        // Max radius for Places API is typically 50000. Clamp it to 1000 - 50000
+        const clampedRadius = Math.max(1000, Math.min(50000, radiusInMeters));
+
+        onSearchArea(center.lat, center.lng, clampedRadius);
+    };
+
+    return (
+        <div className="relative h-full w-full">
+            <MapContainer
+                center={[37.7749, -122.4194]} // Default San Francisco
+                zoom={13}
+                className="h-full w-full z-0"
+                ref={setMapRef}
+            >
+                <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                    url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+                />
+                <MapEvents onMoveEnd={(map) => {
+                    setMapRef(map);
+                    if (onBoundsChange) {
+                        const center = map.getCenter();
+                        const bounds = map.getBounds();
+                        const radius = Math.max(1000, Math.min(50000, center.distanceTo(bounds.getNorthWest()) * 0.5));
+                        onBoundsChange(center.lat, center.lng, radius);
+                    }
+                }} />
+                <MapUpdater center={center} />
+            </MapContainer>
+
+            {/* Floating Search Button */}
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000]">
+                <button
+                    onClick={handleSearch}
+                    className="bg-black text-white hover:bg-neutral-800 shadow-lg px-6 py-3 rounded-full flex items-center gap-2 font-medium transition-transform active:scale-95"
+                >
+                    <Search size={18} />
+                    <span>Search This Area</span>
+                </button>
+            </div>
+        </div>
+    );
+}
+
+
+=== src\components\MapWrapper.tsx ===
+
+
+'use client';
+
+import dynamic from 'next/dynamic';
+import { MapProps } from '@/components/Map';
+
+const DynamicMap = dynamic<MapProps>(() => import('@/components/Map'), {
+    ssr: false,
+    loading: () => <div className="h-full w-full bg-neutral-200 animate-pulse flex items-center justify-center text-neutral-500">Loading Map...</div>
+});
+
+const MapWrapper = ({
+    onSearchArea,
+    center,
+    onBoundsChange
+}: {
+    onSearchArea: (lat: number, lng: number, radius: number) => void,
+    center?: { lat: number, lng: number } | null,
+    onBoundsChange?: (lat: number, lng: number, radius: number) => void
+}) => {
+    return <DynamicMap onSearchArea={onSearchArea} center={center} onBoundsChange={onBoundsChange} />;
+};
+
+export default MapWrapper;
+
+
+=== src\hooks\useLeads.ts ===
+
+
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabase';
+import { Lead } from '@/types';
+import { fetchAllLeads } from '@/lib/leads';
+
+export function useLeads() {
+    const [leads, setLeads] = useState<Lead[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    const loadLeads = async () => {
+        setLoading(true);
+        const data = await fetchAllLeads();
+        setLeads(data);
+        setLoading(false);
+    };
+
+    useEffect(() => {
+        // Initial fetch
+        loadLeads();
+
+        // Subscribe to changes
+        const subscription = supabase
+            .channel('leads-changes')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, (payload) => {
+                if (payload.eventType === 'INSERT') {
+                    setLeads((prev) => [payload.new as Lead, ...prev]);
+                } else if (payload.eventType === 'UPDATE') {
+                    setLeads((prev) =>
+                        prev.map((lead) => (lead.id === payload.new.id ? (payload.new as Lead) : lead))
+                    );
+                } else if (payload.eventType === 'DELETE') {
+                    setLeads((prev) => prev.filter((lead) => lead.id !== payload.old.id));
+                }
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(subscription);
+        };
+    }, []);
+
+    return { leads, loading, refetch: loadLeads };
+}
+
+
+=== src\lib\enrichment.ts ===
+
+
+import * as cheerio from 'cheerio';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { Lead } from '@/types';
+
+const GOOGLE_SEARCH_API_KEY = process.env.GOOGLE_SEARCH_API_KEY;
+const GOOGLE_SEARCH_CX = process.env.GOOGLE_SEARCH_CX;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY!);
+const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' }); // Use flash for speed, 1.5 is standard
+
+// Helper for exponential backoff on Gemini API calls
+async function callGeminiWithBackoff(prompt: string, maxRetries = 3): Promise<string> {
+    let attempt = 0;
+    let delay = 1000;
+
+    while (attempt < maxRetries) {
+        try {
+            const result = await model.generateContent(prompt);
+            return result.response.text();
+        } catch (error: any) {
+            if (error?.status === 429 || error?.status === 503) {
+                attempt++;
+                console.warn(`Gemini API rate limited (Attempt ${attempt}/${maxRetries}). Retrying in ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                delay *= 2; // Exponential backoff
+            } else {
+                throw error;
+            }
+        }
+    }
+    throw new Error('Gemini API failed after max retries due to rate limiting.');
+}
+
+async function searchGoogle(query: string) {
+    if (!GOOGLE_SEARCH_API_KEY || !GOOGLE_SEARCH_CX) {
+        console.warn('Google Custom Search keys not configured.');
+        return [];
+    }
+    try {
+        const url = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_SEARCH_API_KEY}&cx=${GOOGLE_SEARCH_CX}&q=${encodeURIComponent(query)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        return data.items || [];
+    } catch (error) {
+        console.error('Google Search API error:', error);
+        return [];
+    }
+}
+
+async function scrapeWebsite(url: string): Promise<string> {
+    try {
+        // Basic timeout implementation
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+        // Some websites block basic fetches, but we must use backend-based Cheerio per requirements
+        const res = await fetch(url, {
+            signal: controller.signal,
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+        });
+        clearTimeout(timeoutId);
+
+        if (!res.ok) return '';
+        const html = await res.text();
+        const $ = cheerio.load(html);
+
+        // Remove scripts and styles
+        $('script, style, noscript, iframe, img, svg').remove();
+        const text = $('body').text().replace(/\s+/g, ' ').trim();
+        // Return max 10000 characters to prevent huge token usage
+        return text.substring(0, 10000);
+    } catch (error) {
+        console.error(`Failed to scrape ${url}:`, (error as Error).message);
+        return '';
+    }
+}
+
+export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
+    let websiteUrl = lead.website;
+    let searchContext = '';
+
+    // 1. If missing website or looking for deep info, use Google Search targeted at GMB/Maps
+    const searchResults = await searchGoogle(`${lead.business_name} ${lead.address} "google.com/maps" OR "business.google.com" OR official website`);
+    let gmbUrl = '';
+
+    if (searchResults.length > 0) {
+        // Try to identify the official GMB/Maps link and the official website
+        for (const item of searchResults) {
+            if (!gmbUrl && (item.link.includes('google.com/maps') || item.link.includes('business.google.com'))) {
+                gmbUrl = item.link;
+            } else if (!websiteUrl && !item.link.includes('linkedin.com') && !item.link.includes('facebook.com')) {
+                websiteUrl = item.link;
+            }
+        }
+        searchContext = searchResults.map((item: any) => `${item.title}: ${item.snippet} (${item.link})`).join('\n');
+    }
+
+    // 2. Scrape website if available
+    let scrapedText = '';
+    if (websiteUrl) {
+        scrapedText = await scrapeWebsite(websiteUrl);
+    }
+
+    // 3. Prepare Gemini Prompt
+    const prompt = `
+    You are an expert lead enrichment AI. Your job is to extract decision maker names, roles, emails, and social profiles for a business.
+    CRITICAL INSTRUCTION: You must use the "Google Search Snippets" to cross-reference and verify the business using their official Google My Business / Google Maps listing.
+    
+    Business Name: ${lead.business_name}
+    Address: ${lead.address}
+    Provided Phone: ${lead.phone || 'N/A'}
+    Website: ${websiteUrl || 'N/A'}
+    Google My Business Verified Link: ${gmbUrl || 'Not Found'}
+    
+    --- Google Search Snippets (Prioritize GMB/Maps data for verification) ---
+    ${searchContext}
+    
+    --- Website Text Snippet ---
+    ${scrapedText.substring(0, 5000)}
+    
+    Task: Extract the following information as strictly formatted JSON without markdown fences or extra text:
+    {
+      "decision_maker_name": "Name of CEO/Owner/Manager if found, else null",
+      "decision_maker_role": "Role (e.g., Owner, CEO) if found, else null",
+      "contact_email": "Best contact email if found (do not guess), else null",
+      "social_profiles": { "linkedin": "url", "facebook": "url", ... } or null if none,
+      "enrichment_summary": "A 1-2 sentence summary of what this business does and who the key contact is."
+    }
+  `;
+
+    // 4. Call Gemini with Exponential Backoff
+    try {
+        const rawResult = await callGeminiWithBackoff(prompt);
+        // Cleanup potential markdown formatting
+        let cleanedJson = rawResult.trim();
+        if (cleanedJson.startsWith('\`\`\`json')) {
+            cleanedJson = cleanedJson.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
+        } else if (cleanedJson.startsWith('\`\`\`')) {
+            cleanedJson = cleanedJson.replace(/\`\`\`/g, '').trim();
+        }
+
+        const parsedData = JSON.parse(cleanedJson);
+        return {
+            website: websiteUrl,
+            decision_maker_name: parsedData.decision_maker_name || null,
+            decision_maker_role: parsedData.decision_maker_role || null,
+            contact_email: parsedData.contact_email || null,
+            social_profiles: parsedData.social_profiles || null,
+            enrichment_summary: parsedData.enrichment_summary || null,
+        };
+    } catch (error) {
+        console.error('Gemini Enrichment Error:', error);
+        // Fallback if AI fails but we found a website
+        return {
+            website: websiteUrl,
+            enrichment_summary: 'Failed to extract AI data.',
+        };
+    }
+}
+
+
+=== src\lib\leads.ts ===
+
+
+import { getServiceSupabase, supabase } from './supabase';
+import { InsertLead, Lead, UpdateLead } from '../types';
+
+export async function upsertLead(leadData: InsertLead): Promise<Lead> {
+    // Use service role for backend operations to bypass RLS
+    const serviceClient = getServiceSupabase();
+    const { data, error } = await serviceClient
+        .from('leads')
+        .upsert(
+            { ...leadData, updated_at: new Date().toISOString() },
+            { onConflict: 'place_id' }
+        )
+        .select()
+        .single();
+
+    if (error) {
+        throw new Error(`Error upserting lead: ${error.message}`);
+    }
+
+    return data;
+}
+
+export async function updateLeadStatus(id: string, status: Lead['status'], enrichmentData?: Partial<Lead>): Promise<Lead> {
+    const serviceClient = getServiceSupabase();
+    const { data, error } = await serviceClient
+        .from('leads')
+        .update({
+            status,
+            ...enrichmentData,
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single();
+
+    if (error) {
+        throw new Error(`Error updating lead status: ${error.message}`);
+    }
+
+    return data;
+}
+
+export async function fetchAllLeads(): Promise<Lead[]> {
+    const { data, error } = await supabase
+        .from('leads')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+    if (error) {
+        console.error('Error fetching leads:', error);
+        return [];
+    }
+
+    return data || [];
+}
+
+export async function deleteAllLeads(): Promise<void> {
+    const serviceClient = getServiceSupabase();
+    const { error } = await serviceClient
+        .from('leads')
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all trick
+
+    if (error) {
+        console.error('Failed to wipe previous leads:', error);
+    }
+}
+
+
+=== src\lib\supabase.ts ===
+
+
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+// Client-side accessible Supabase client (using anon key)
+export const supabase = createClient(supabaseUrl, supabaseKey);
+
+// Server-side admin client (bypasses RLS, only use in API routes)
+export const getServiceSupabase = () => {
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
+  }
+  return createClient(supabaseUrl, process.env.SUPABASE_SERVICE_ROLE_KEY);
+};
+
+
+=== src\types\index.ts ===
+
+
+export type LeadStatus = 'pending' | 'researching' | 'verified' | 'failed';
+
+export interface Lead {
+    id: string; // UUID
+    place_id: string; // Unique Google Maps Place ID
+    business_name: string;
+    address: string;
+    latitude: number;
+    longitude: number;
+    website?: string | null;
+    phone?: string | null;
+    status: LeadStatus;
+    decision_maker_name?: string | null;
+    decision_maker_role?: string | null;
+    social_profiles?: { [key: string]: string } | null;
+    contact_email?: string | null;
+    enrichment_summary?: string | null;
+    created_at: string; // ISO Date String
+    updated_at: string; // ISO Date String
+}
+
+export type InsertLead = Omit<Lead, 'id' | 'created_at' | 'updated_at'>;
+export type UpdateLead = Partial<Omit<Lead, 'id' | 'place_id' | 'created_at' | 'updated_at'>>;
+
+
+=== package.json ===
+
+
+{
+  "name": "nexus-lead-engine",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --webpack",
+    "build": "next build --webpack",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@googlemaps/google-maps-services-js": "^3.4.2",
+    "@supabase/supabase-js": "^2.97.0",
+    "cheerio": "^1.2.0",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^0.575.0",
+    "next": "16.1.6",
+    "p-limit": "^7.3.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-leaflet": "^5.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/leaflet": "^1.9.21",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.6",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
+
+
+=== tailwind.config.ts (if exists) ===
+
+

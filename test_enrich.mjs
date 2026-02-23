@@ -1,0 +1,1 @@
+const url = "http://localhost:3000/api/enrich"; const body = { leadId: "fb4cc0bf-a401-4de2-bc32-7319c72e259b" }; fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(res => res.text()).then(text => console.log("Response:", text)).catch(err => console.error("Error:", err));
