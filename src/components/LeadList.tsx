@@ -1,7 +1,7 @@
 'use client';
 
 import { Lead } from '@/types';
-import { Loader2, CheckCircle2, XCircle, Clock, MapPin, Globe, Phone, Mail, Linkedin, X, Building2, Copy, Check, User, Sparkles, Download } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, Clock, MapPin, Globe, Phone, Mail, Linkedin, X, Building2, Copy, Check, User, Sparkles, Download, Youtube, Facebook, Twitter, Instagram, Video, Store, Search } from 'lucide-react';
 import { useState } from 'react';
 
 export default function LeadList({ leads, loading, isSearching, refetch }: { leads: Lead[], loading: boolean, isSearching: boolean, refetch?: () => void }) {
@@ -343,14 +343,14 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                                         <h4 className="text-[11px] font-bold text-neutral-400 tracking-wider uppercase">Social Media</h4>
                                         <div className="flex flex-wrap gap-2">
                                             {[
-                                                { id: 'yelp', label: 'Yelp', icon: Globe, colorClass: 'text-red-500' },
-                                                { id: 'google', label: 'Google', icon: Globe, colorClass: 'text-blue-500' },
-                                                { id: 'tiktok', label: 'Tiktok', icon: Globe, colorClass: 'text-black' },
-                                                { id: 'twitter', label: 'Twitter', icon: Globe, colorClass: 'text-sky-500' },
-                                                { id: 'youtube', label: 'Youtube', icon: Globe, colorClass: 'text-red-600' },
-                                                { id: 'facebook', label: 'Facebook', icon: Globe, colorClass: 'text-blue-600' },
+                                                { id: 'yelp', label: 'Yelp', icon: Store, colorClass: 'text-red-500' },
+                                                { id: 'google', label: 'Google', icon: Search, colorClass: 'text-blue-500' },
+                                                { id: 'tiktok', label: 'Tiktok', icon: Video, colorClass: 'text-black' },
+                                                { id: 'twitter', label: 'Twitter', icon: Twitter, colorClass: 'text-sky-500' },
+                                                { id: 'youtube', label: 'Youtube', icon: Youtube, colorClass: 'text-red-600' },
+                                                { id: 'facebook', label: 'Facebook', icon: Facebook, colorClass: 'text-blue-600' },
                                                 { id: 'linkedin', label: 'Linkedin', icon: Linkedin, colorClass: 'text-blue-700' },
-                                                { id: 'instagram', label: 'Instagram', icon: Globe, colorClass: 'text-pink-600' },
+                                                { id: 'instagram', label: 'Instagram', icon: Instagram, colorClass: 'text-pink-600' },
                                             ].map(({ id, label, icon: Icon, colorClass }) => {
                                                 const url = selectedLead.social_profiles?.[id] || selectedLead.social_profiles?.[id.toLowerCase()];
                                                 const hasLink = !!url;
