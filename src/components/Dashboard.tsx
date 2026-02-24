@@ -30,6 +30,8 @@ export default function Dashboard() {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
+    const [nextPageToken, setNextPageToken] = useState<string | null>(null);
+
     // Fetch Autocomplete Predictions
     useEffect(() => {
         if (!locationText || locationText.length < 3 || !showDropdown) {
@@ -72,7 +74,7 @@ export default function Dashboard() {
         }
     };
 
-    const handleSearchArea = async (lat: number, lng: number, radius: number) => {
+    const handleSearchArea = async (lat: number, lng: number, radius: number, isLoadMore = false) => {
         if (!query) return alert('Please enter a search query first');
 
         setIsSearching(true);
@@ -80,22 +82,40 @@ export default function Dashboard() {
         setShowDropdown(false);
         setPredictions([]);
 
+        if (!isLoadMore) {
+            setNextPageToken(null);
+        }
+
         try {
+            const payload: any = {
+                query,
+                latitude: lat,
+                longitude: lng,
+                radius
+            };
+
+            if (isLoadMore && nextPageToken) {
+                payload.pageToken = nextPageToken;
+            }
+
             const res = await fetch('/api/search', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({
-                    query,
-                    latitude: lat,
-                    longitude: lng,
-                    radius
-                })
+                body: JSON.stringify(payload)
             });
 
             if (!res.ok) {
                 throw new Error('Search failed');
+            }
+
+            const data = await res.json();
+
+            if (data.nextPageToken) {
+                setNextPageToken(data.nextPageToken);
+            } else {
+                setNextPageToken(null); // No more pages
             }
 
             // Supabase Realtime might be disabled on the leads table,
@@ -172,6 +192,21 @@ export default function Dashboard() {
                             )}
                             {isSearching ? 'Searching...' : 'Search Leads'}
                         </button>
+
+                        {nextPageToken && (
+                            <button
+                                onClick={() => handleSearchArea(mapBounds.lat, mapBounds.lng, mapBounds.radius, true)}
+                                disabled={isSearching}
+                                className="w-full mt-2 bg-white hover:bg-neutral-50 border border-blue-200 text-blue-600 font-medium py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-70 disabled:cursor-not-allowed shadow-sm"
+                            >
+                                {isSearching ? (
+                                    <div className="w-4 h-4 rounded-full border-2 border-blue-600 border-t-transparent animate-spin" />
+                                ) : (
+                                    <Search size={16} />
+                                )}
+                                Load More Leads
+                            </button>
+                        )}
                     </div>
                 </div>
 

@@ -8,7 +8,7 @@ const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_
 export async function POST(request: Request) {
     try {
         const body = await request.json();
-        const { query, latitude, longitude, radius = 5000 } = body;
+        const { query, latitude, longitude, radius = 5000, pageToken: clientPageToken } = body;
 
         if (!query || !latitude || !longitude) {
             return NextResponse.json(
@@ -17,8 +17,10 @@ export async function POST(request: Request) {
             );
         }
 
-        // Wipe the database of previous search results for a clean slate
-        await deleteAllLeads();
+        // Wipe the database ONLY if this is a fresh search (no pageToken provided)
+        if (!clientPageToken) {
+            await deleteAllLeads();
+        }
 
         const lat = parseFloat(latitude);
         const lng = parseFloat(longitude);
