@@ -339,25 +339,49 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                                     </div>
 
                                     {/* Social Profiles Grid */}
-                                    {selectedLead.social_profiles && Object.keys(selectedLead.social_profiles).length > 0 && (
-                                        <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5 space-y-4">
-                                            <h4 className="text-[11px] font-bold text-neutral-400 tracking-wider uppercase">Social Media</h4>
-                                            <div className="flex flex-wrap gap-2">
-                                                {Object.entries(selectedLead.social_profiles).map(([network, url]) => (
-                                                    <a
-                                                        key={network}
-                                                        href={url as string}
-                                                        target="_blank"
-                                                        rel="noreferrer"
-                                                        className="px-4 py-2 bg-neutral-50 hover:bg-neutral-100 border border-neutral-200 text-neutral-700 text-xs font-bold rounded-lg capitalize flex items-center gap-2 transition-colors"
+                                    <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5 space-y-4">
+                                        <h4 className="text-[11px] font-bold text-neutral-400 tracking-wider uppercase">Social Media</h4>
+                                        <div className="flex flex-wrap gap-2">
+                                            {[
+                                                { id: 'yelp', label: 'Yelp', icon: Globe, colorClass: 'text-red-500' },
+                                                { id: 'google', label: 'Google', icon: Globe, colorClass: 'text-blue-500' },
+                                                { id: 'tiktok', label: 'Tiktok', icon: Globe, colorClass: 'text-black' },
+                                                { id: 'twitter', label: 'Twitter', icon: Globe, colorClass: 'text-sky-500' },
+                                                { id: 'youtube', label: 'Youtube', icon: Globe, colorClass: 'text-red-600' },
+                                                { id: 'facebook', label: 'Facebook', icon: Globe, colorClass: 'text-blue-600' },
+                                                { id: 'linkedin', label: 'Linkedin', icon: Linkedin, colorClass: 'text-blue-700' },
+                                                { id: 'instagram', label: 'Instagram', icon: Globe, colorClass: 'text-pink-600' },
+                                            ].map(({ id, label, icon: Icon, colorClass }) => {
+                                                const url = selectedLead.social_profiles?.[id] || selectedLead.social_profiles?.[id.toLowerCase()];
+                                                const hasLink = !!url;
+
+                                                if (hasLink) {
+                                                    return (
+                                                        <a
+                                                            key={id}
+                                                            href={url as string}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="px-4 py-2 bg-neutral-50 hover:bg-neutral-100 border border-neutral-200 text-neutral-700 text-xs font-bold rounded-lg flex items-center gap-2 transition-colors"
+                                                        >
+                                                            <Icon size={14} className={colorClass} />
+                                                            {label}
+                                                        </a>
+                                                    );
+                                                }
+
+                                                return (
+                                                    <div
+                                                        key={id}
+                                                        className="px-4 py-2 bg-white border border-neutral-200 text-neutral-400 text-xs font-bold rounded-lg flex items-center gap-2 cursor-not-allowed opacity-60"
                                                     >
-                                                        {network === 'linkedin' ? <Linkedin size={14} className="text-blue-600" /> : <Globe size={14} className="text-neutral-500" />}
-                                                        {network}
-                                                    </a>
-                                                ))}
-                                            </div>
+                                                        <Icon size={14} className="text-neutral-400" />
+                                                        {label}
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
-                                    )}
+                                    </div>
                                 </div>
                             )}
 
