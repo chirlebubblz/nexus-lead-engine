@@ -1,4 +1,4 @@
-import { processEnrichment } from './src/lib/enrichment.ts';
+import { processEnrichment } from './src/lib/enrichment';
 
 const mockLead = {
     id: "test",
