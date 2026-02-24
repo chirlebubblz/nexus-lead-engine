@@ -37,41 +37,65 @@ export async function POST(request: Request) {
 
         // Call Google Places API New (Text Search)
         const url = 'https://places.googleapis.com/v1/places:searchText';
-        const payload = {
-            textQuery: query,
-            locationRestriction: {
-                rectangle: {
-                    low: {
-                        latitude: Math.min(minLat, maxLat),
-                        longitude: Math.min(minLng, maxLng),
+
+        let places: any[] = [];
+        let pageToken = '';
+        let pagesFetched = 0;
+        const MAX_PAGES = 3; // Up to 60 leads total (20 per page)
+
+        while (pagesFetched < MAX_PAGES) {
+            const payload: any = {
+                textQuery: query,
+                locationRestriction: {
+                    rectangle: {
+                        low: {
+                            latitude: Math.min(minLat, maxLat),
+                            longitude: Math.min(minLng, maxLng),
+                        },
+                        high: {
+                            latitude: Math.max(minLat, maxLat),
+                            longitude: Math.max(minLng, maxLng),
+                        }
                     },
-                    high: {
-                        latitude: Math.max(minLat, maxLat),
-                        longitude: Math.max(minLng, maxLng),
-                    }
                 },
-            },
-            languageCode: 'en',
-        };
+                languageCode: 'en',
+            };
 
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY!,
-                'X-Goog-FieldMask': 'places.id,places.displayName,places.name,places.formattedAddress,places.location,places.websiteUri,places.nationalPhoneNumber,places.googleMapsUri',
-            },
-            body: JSON.stringify(payload),
-        });
+            if (pageToken) {
+                payload.pageToken = pageToken;
+            }
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Google Places API Error:', errorText);
-            return NextResponse.json({ error: 'Failed to fetch places from Google Maps' }, { status: 500 });
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY!,
+                    'X-Goog-FieldMask': 'places.id,places.displayName,places.name,places.formattedAddress,places.location,places.websiteUri,places.nationalPhoneNumber,places.googleMapsUri,nextPageToken',
+                },
+                body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('Google Places API Error:', errorText);
+                if (pagesFetched === 0) {
+                    return NextResponse.json({ error: 'Failed to fetch places from Google Maps' }, { status: 500 });
+                }
+                break; // Stop fetching more pages if an error occurs but keep what we have
+            }
+
+            const data = await response.json();
+            if (data.places) {
+                places = places.concat(data.places);
+            }
+
+            pageToken = data.nextPageToken;
+            pagesFetched++;
+
+            if (!pageToken) {
+                break; // No more pages available
+            }
         }
-
-        const data = await response.json();
-        const places = data.places || [];
 
         const insertedLeads = [];
         const insertionErrors: any[] = [];
