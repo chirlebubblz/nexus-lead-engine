@@ -4,7 +4,11 @@ import { useState, useEffect, useRef } from 'react';
 import { useLeads } from '@/hooks/useLeads';
 import MapWrapper from '@/components/MapWrapper';
 import LeadList from '@/components/LeadList';
-import { Search, MapPin } from 'lucide-react';
+import { Search, MapPin, LogOut, UserPlus } from 'lucide-react';
+import { createClient } from '@/utils/supabase/client';
+import { useRouter } from 'next/navigation';
+
+const ADMIN_EMAIL = 'jerafisabalo@gmail.com';
 
 export default function Dashboard() {
     const { leads, loading, refetch } = useLeads();
@@ -13,6 +17,32 @@ export default function Dashboard() {
     const [predictions, setPredictions] = useState<any[]>([]);
     const [showDropdown, setShowDropdown] = useState(false);
     const [isSearching, setIsSearching] = useState(false);
+    const [userEmail, setUserEmail] = useState<string | null>(null);
+
+    // Admin Account Creation State
+    const [newEmail, setNewEmail] = useState('');
+    const [newPassword, setNewPassword] = useState('');
+    const [adminMsg, setAdminMsg] = useState<{ type: 'error' | 'success', text: string } | null>(null);
+    const [isCreatingUser, setIsCreatingUser] = useState(false);
+
+    const router = useRouter();
+    const supabase = createClient();
+
+    useEffect(() => {
+        const getUser = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                setUserEmail(user.email ?? null);
+            }
+        };
+        getUser();
+    }, [supabase]);
+
+    const handleLogout = async () => {
+        await supabase.auth.signOut();
+        router.push('/login');
+        router.refresh();
+    };
 
     // Default Map Center & Bounds
     const [mapCenter, setMapCenter] = useState<{ lat: number, lng: number } | null>(null);
@@ -71,6 +101,32 @@ export default function Dashboard() {
             }
         } catch (err) {
             console.error("Geocoding failed", err);
+        }
+    };
+
+    const handleCreateGuest = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsCreatingUser(true);
+        setAdminMsg(null);
+
+        try {
+            const res = await fetch('/api/admin/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: newEmail, password: newPassword })
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) throw new Error(data.error || 'Failed to create user');
+
+            setAdminMsg({ type: 'success', text: `Created: ${data.user.email}` });
+            setNewEmail('');
+            setNewPassword('');
+        } catch (err: any) {
+            setAdminMsg({ type: 'error', text: err.message });
+        } finally {
+            setIsCreatingUser(false);
         }
     };
 
@@ -133,7 +189,18 @@ export default function Dashboard() {
         <div className="flex h-screen w-full bg-neutral-100 overflow-hidden">
             {/* Sidebar / List View */}
             <div className="w-1/3 min-w-[400px] h-full flex flex-col bg-white border-r border-neutral-200 z-10 shadow-xl">
-                <div className="p-6 border-b border-neutral-100 bg-white">
+                <div className="p-6 border-b border-neutral-100 bg-white relative">
+                    <div className="absolute top-6 right-6 flex items-center gap-3">
+                        {userEmail && <span className="text-xs font-medium text-neutral-400">{userEmail}</span>}
+                        <button
+                            onClick={handleLogout}
+                            className="text-neutral-400 hover:text-red-500 transition-colors p-1"
+                            title="Sign Out"
+                        >
+                            <LogOut size={16} />
+                        </button>
+                    </div>
+
                     <h1 className="text-2xl font-bold text-neutral-900 tracking-tight">Nexus Lead Engine</h1>
                     <p className="text-sm text-neutral-500 mt-1 mb-4">Find & enrich local businesses in real-time</p>
 
@@ -208,6 +275,45 @@ export default function Dashboard() {
                             </button>
                         )}
                     </div>
+
+                    {userEmail === ADMIN_EMAIL && (
+                        <div className="mt-6 pt-6 border-t border-neutral-100">
+                            <h3 className="text-xs font-bold text-neutral-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                <UserPlus size={14} /> Admin: Create Account
+                            </h3>
+                            <form onSubmit={handleCreateGuest} className="space-y-2 bg-neutral-50 p-3 rounded-lg border border-neutral-200">
+                                <input
+                                    type="email"
+                                    required
+                                    value={newEmail}
+                                    onChange={(e) => setNewEmail(e.target.value)}
+                                    placeholder="Employee Email"
+                                    className="w-full px-3 py-1.5 bg-white border border-neutral-200 rounded text-sm focus:outline-none focus:border-blue-500"
+                                />
+                                <input
+                                    type="password"
+                                    required
+                                    value={newPassword}
+                                    onChange={(e) => setNewPassword(e.target.value)}
+                                    placeholder="Temporary Password"
+                                    minLength={6}
+                                    className="w-full px-3 py-1.5 bg-white border border-neutral-200 rounded text-sm focus:outline-none focus:border-blue-500"
+                                />
+                                <button
+                                    type="submit"
+                                    disabled={isCreatingUser}
+                                    className="w-full bg-neutral-800 hover:bg-neutral-900 text-white text-xs font-medium py-2 rounded transition-colors disabled:opacity-50"
+                                >
+                                    {isCreatingUser ? 'Creating...' : 'Provision Guest'}
+                                </button>
+                                {adminMsg && (
+                                    <div className={`text-xs mt-2 ${adminMsg.type === 'error' ? 'text-red-600' : 'text-green-600'}`}>
+                                        {adminMsg.text}
+                                    </div>
+                                )}
+                            </form>
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex-1 overflow-auto bg-neutral-50">

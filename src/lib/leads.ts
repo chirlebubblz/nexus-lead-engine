@@ -7,7 +7,7 @@ export async function upsertLead(leadData: InsertLead): Promise<Lead> {
     const { data, error } = await serviceClient
         .from('leads')
         .upsert(
-            leadData,
+            { ...leadData, updated_at: new Date().toISOString() }, // Timestamp fix added here
             { onConflict: 'place_id' }
         )
         .select()
@@ -26,7 +26,8 @@ export async function updateLeadStatus(id: string, status: Lead['status'], enric
         .from('leads')
         .update({
             status,
-            ...enrichmentData
+            ...enrichmentData,
+            updated_at: new Date().toISOString() // Added here as well for good measure
         })
         .eq('id', id)
         .select()

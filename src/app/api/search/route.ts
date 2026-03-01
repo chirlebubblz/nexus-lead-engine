@@ -2,8 +2,11 @@ import { NextResponse } from 'next/server';
 import { upsertLead, deleteAllLeads } from '@/lib/leads';
 import pLimit from 'p-limit';
 import { fastExtractSocials } from '@/lib/enrichment';
+import { createClient } from '@/utils/supabase/server';
+import { getServiceSupabase } from '@/lib/supabase';
 
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+const ADMIN_EMAIL = 'jerafisabalo@gmail.com';
 
 export async function POST(request: Request) {
     try {
@@ -15,6 +18,40 @@ export async function POST(request: Request) {
                 { error: 'Missing required parameters: query, latitude, longitude' },
                 { status: 400 }
             );
+        }
+
+        // Get Authenticated User
+        const supabase = await createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+
+        if (!user) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        // Check Quotes for Guest limit (100 per day)
+        // Bypass quota entirely for Admin
+        const isAdmin = user.email === ADMIN_EMAIL;
+
+        const serviceSupabase = getServiceSupabase();
+        const today = new Date().toISOString().split('T')[0];
+        let currentFetched = 0;
+        const GUEST_DAILY_LIMIT = 100;
+
+        if (!isAdmin) {
+            const { data: quotaTracker } = await serviceSupabase
+                .from('user_quotas')
+                .select('leads_fetched_today')
+                .eq('user_id', user.id)
+                .eq('search_date', today)
+                .single();
+
+            currentFetched = quotaTracker?.leads_fetched_today || 0;
+
+            if (currentFetched >= GUEST_DAILY_LIMIT) {
+                return NextResponse.json({
+                    error: `Daily limit reached. Guests can only fetch ${GUEST_DAILY_LIMIT} leads per day.`
+                }, { status: 403 });
+            }
         }
 
         // Wipe the database ONLY if this is a fresh search (no pageToken provided)
@@ -166,11 +203,22 @@ export async function POST(request: Request) {
 
         await Promise.all(processPromises);
 
-        if (insertedLeads.length > 0) {
-            // [AI ENRICHMENT REMOVED]
-            // We NO LONGER auto-trigger the background worker.
-            // Users will manually trigger enrichment individually from the UI.
-            console.log(`Saved ${insertedLeads.length} leads. Awaiting manual enrichment.`);
+        const newLeadsInserted = insertedLeads.length;
+
+        if (newLeadsInserted > 0) {
+            // Update User Quota safely only for Guests
+            if (!isAdmin) {
+                const newTotal = currentFetched + newLeadsInserted;
+                await serviceSupabase
+                    .from('user_quotas')
+                    .upsert({
+                        user_id: user.id,
+                        search_date: today,
+                        leads_fetched_today: newTotal
+                    }, { onConflict: 'user_id, search_date' });
+            }
+
+            console.log(`Saved ${newLeadsInserted} leads. Awaiting manual enrichment.`);
         }
 
         return NextResponse.json({
