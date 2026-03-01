@@ -17,6 +17,8 @@ export const metadata: Metadata = {
   description: "AI-powered B2B lead generation",
 };
 
+export const dynamic = 'force-dynamic';
+
 export default function RootLayout({
   children,
 }: Readonly<{
