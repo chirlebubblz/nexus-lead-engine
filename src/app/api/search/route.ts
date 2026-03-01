@@ -24,13 +24,13 @@ export async function POST(request: Request) {
         const supabase = await createClient();
         const { data: { user } } = await supabase.auth.getUser();
 
-        if (!user) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
-
         // Check Quotes for Guest limit (100 per day)
         // Bypass quota entirely for Admin
-        const isAdmin = user.email === ADMIN_EMAIL;
+        const isAdmin = user && user.email === ADMIN_EMAIL;
+
+        // Extract IP for guests
+        const forwardedFor = request.headers.get('x-forwarded-for');
+        const ip = forwardedFor ? forwardedFor.split(',')[0].trim() : 'unknown-ip';
 
         const serviceSupabase = getServiceSupabase();
         const today = new Date().toISOString().split('T')[0];
@@ -39,9 +39,9 @@ export async function POST(request: Request) {
 
         if (!isAdmin) {
             const { data: quotaTracker } = await serviceSupabase
-                .from('user_quotas')
+                .from('ip_quotas')
                 .select('leads_fetched_today')
-                .eq('user_id', user.id)
+                .eq('ip_address', ip)
                 .eq('search_date', today)
                 .single();
 
@@ -207,15 +207,15 @@ export async function POST(request: Request) {
 
         if (newLeadsInserted > 0) {
             // Update User Quota safely only for Guests
-            if (!isAdmin) {
+            if (!isAdmin && ip !== 'unknown-ip') {
                 const newTotal = currentFetched + newLeadsInserted;
                 await serviceSupabase
-                    .from('user_quotas')
+                    .from('ip_quotas')
                     .upsert({
-                        user_id: user.id,
+                        ip_address: ip,
                         search_date: today,
                         leads_fetched_today: newTotal
-                    }, { onConflict: 'user_id, search_date' });
+                    }, { onConflict: 'ip_address, search_date' });
             }
 
             console.log(`Saved ${newLeadsInserted} leads. Awaiting manual enrichment.`);
