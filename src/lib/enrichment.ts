@@ -1,4 +1,3 @@
-import pLimit from 'p-limit';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { Lead } from '@/types';
 
@@ -7,12 +6,7 @@ const GOOGLE_SEARCH_CX = process.env.GOOGLE_SEARCH_CX;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY!);
-
-// FORCE Native JSON Mode so we never have parsing crashes
-const model = genAI.getGenerativeModel({
-    model: 'gemini-1.5-flash',
-    generationConfig: { responseMimeType: "application/json" }
-});
+const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
 
 // Helper for exponential backoff on Gemini API calls
 async function callGeminiWithBackoff(prompt: string, maxRetries = 3): Promise<string> {
@@ -53,32 +47,25 @@ async function searchGoogle(query: string) {
     }
 }
 
-// UPGRADED SCRAPER: Uses Jina.ai to render JavaScript sites (Wix/React)
-// Returns clean markdown containing all text and links.
-async function scrapeWebsiteWithJina(url: string): Promise<string> {
+// OPTION 2: WEB SCRAPING API (Jina AI)
+async function scrapeWebsiteWithAPI(url: string): Promise<string> {
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 12000); // Give it slightly longer to render JS
-
-        // The 'r.jina.ai/' prefix automatically converts the target URL into clean Markdown
-        const res = await fetch(`https://r.jina.ai/${url}`, {
-            signal: controller.signal,
+        console.log(`Sending ${url} to Jina AI Reader API...`);
+        // Jina AI renders the JavaScript and returns clean Markdown containing all links and text
+        const response = await fetch(`https://r.jina.ai/${url}`, {
             headers: {
-                'Accept': 'application/json',
+                'Accept': 'text/plain',
                 'X-Return-Format': 'markdown'
             }
         });
-        clearTimeout(timeoutId);
 
-        if (!res.ok) return '';
+        if (!response.ok) return '';
 
-        const data = await res.json();
-        const markdownText = data.data?.content || '';
-
-        // Truncate to 10000 characters to save Gemini tokens while retaining core data
-        return markdownText.substring(0, 10000);
+        const markdown = await response.text();
+        // Give Gemini up to 15,000 characters of context (plenty for finding contact info and socials)
+        return markdown.substring(0, 15000);
     } catch (error) {
-        console.error(`Failed to scrape ${url} with Jina:`, (error as Error).message);
+        console.error(`Scraping API failed for ${url}:`, error);
         return '';
     }
 }
@@ -88,66 +75,66 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
     let searchContext = '';
     let scrapedText = '';
 
-    // 1. Scrape the official website using the new JS-rendering engine
+    // 1. Scrape the official website using the API
     if (websiteUrl) {
-        scrapedText = await scrapeWebsiteWithJina(websiteUrl as string);
+        scrapedText = await scrapeWebsiteWithAPI(websiteUrl as string);
     }
 
-    // 2. Perform a targeted Google Search
+    // 2. Google Search Fallback & Cross-Reference
     const searchResults = await searchGoogle(`"${lead.business_name}" ${lead.address} LinkedIn OR Facebook OR Instagram OR official website`);
 
     if (searchResults.length > 0) {
         for (const item of searchResults) {
-            // If no website was found originally, find it via Google and scrape it
             if (!websiteUrl && !item.link.includes('linkedin.com') && !item.link.includes('facebook.com') && !item.link.includes('instagram.com') && !item.link.includes('google.com')) {
                 websiteUrl = item.link;
-                scrapedText = await scrapeWebsiteWithJina(websiteUrl as string);
+                scrapedText = await scrapeWebsiteWithAPI(websiteUrl as string);
             }
         }
         searchContext = searchResults.map((item: any) => `${item.title}: ${item.snippet} (${item.link})`).join('\n');
     }
 
-    // 3. Prepare Gemini Prompt (Simplified because JSON mode is forced)
+    // 3. Prepare Gemini Prompt (UPGRADED WITH CLASSIFICATION)
     const prompt = `
-    You are an expert lead enrichment AI. Your job is to deeply analyze website markdown and search snippets to accurately extract business intelligence.
+    You are an expert lead generation data analyst. Your job is to extract decision-maker contact info, find social profiles, and flag "bad" leads.
     
-    CRITICAL INSTRUCTIONS FOR EMAIL EXTRACTION:
-    1. Scan the raw text carefully for any string containing "@".
-    2. Look for "mailto:" links in the markdown.
-    3. Look for phrases like "Contact us at [email]" or "Email: [email]".
-    4. Validate that the email looks like a genuine company or contact email (e.g., info@, support@, owner@, or a personal name).
-    5. ONLY output the email. Do not include surrounding text. If no email is found, output null.
-
-    CRITICAL INSTRUCTIONS FOR SOCIALS & NAMES:
-    1. Find links to linkedin.com, facebook.com, instagram.com, twitter.com/x.com, youtube.com, tiktok.com, and yelp.com.
-    2. Look for names mentioned as CEO, Owner, Founder, President, or Manager.
-
     Business Name: ${lead.business_name}
     Address: ${lead.address}
     Provided Phone: ${lead.phone || 'N/A'}
     Website: ${websiteUrl || 'N/A'}
     
-    --- Official Website Content (Markdown) ---
+    --- Official Website Content (Jina AI Extraction - Markdown Format) ---
     ${scrapedText || 'No website content could be scraped.'}
     
-    --- Google Search Snippets ---
+    --- Google Search Snippets (FOR CROSS-REFERENCING) ---
     ${searchContext || 'No search context found.'}
     
-    Task: Output a valid JSON object matching exactly this schema:
+    CRITICAL INSTRUCTIONS:
+    1. Scan the Website Content (which includes markdown links) and the Google Search snippets to build a complete list of social profiles.
+    2. Look for explicit emails, owner names, or management team members. Do not guess emails.
+    3. Categorize the lead. If this looks like a residential home, an apartment complex, a permanently closed business, or completely unrelated to commercial business, set the "lead_quality" to "bad" and explain why in the summary.
+    
+    Task: Extract the following information as STRICT JSON without markdown fences or extra text:
     {
+      "lead_quality": "good" or "bad",
       "decision_maker_name": "Name of CEO/Owner/Manager if found, else null",
       "decision_maker_role": "Role (e.g., Owner, CEO) if found, else null",
-      "contact_email": "Best contact email if found (do not guess), else null",
-      "social_profiles": { "linkedin": "url", "facebook": "url", "instagram": "url", "twitter": "url", "youtube": "url", "tiktok": "url", "yelp": "url" } or null if none,
-      "enrichment_summary": "A 1-2 sentence summary of what this business does and who the key contact is."
+      "contact_email": "Best contact email if found, else null",
+      "social_profiles": { "linkedin": "url", "facebook": "url", "instagram": "url", "twitter": "url", "youtube": "url", "tiktok": "url", "yelp": "url" } or null,
+      "enrichment_summary": "A 1-2 sentence summary of what this business does and who the key contact is. If lead_quality is bad, explain why."
     }
-    `;
+  `;
 
     // 4. Call Gemini
     try {
         const rawResult = await callGeminiWithBackoff(prompt);
-        // We can confidently run JSON.parse now because responseMimeType guarantees JSON format
-        const parsedData = JSON.parse(rawResult);
+        let cleanedJson = rawResult.trim();
+        if (cleanedJson.startsWith('```json')) {
+            cleanedJson = cleanedJson.replace(/```json/g, '').replace(/```/g, '').trim();
+        } else if (cleanedJson.startsWith('```')) {
+            cleanedJson = cleanedJson.replace(/```/g, '').trim();
+        }
+
+        const parsedData = JSON.parse(cleanedJson);
 
         let existingProfiles: Record<string, string> = {};
         if (lead.social_profiles) {
@@ -159,8 +146,12 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
         const newProfiles = parsedData.social_profiles || {};
         const mergedProfiles = { ...existingProfiles, ...newProfiles };
 
+        // If the AI flags it as a "bad" lead (e.g., residential house), we change the status
+        const finalStatus = parsedData.lead_quality === 'bad' ? 'failed' : 'verified';
+
         return {
             website: websiteUrl,
+            status: finalStatus,
             decision_maker_name: parsedData.decision_maker_name || null,
             decision_maker_role: parsedData.decision_maker_role || null,
             contact_email: parsedData.contact_email || null,
@@ -171,6 +162,7 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
         console.error('Gemini Enrichment Error:', error);
         return {
             website: websiteUrl,
+            status: 'failed',
             enrichment_summary: 'Failed to extract AI data.',
         };
     }
