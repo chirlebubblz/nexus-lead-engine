@@ -109,9 +109,19 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
 
     // 3. Prepare Gemini Prompt (Simplified because JSON mode is forced)
     const prompt = `
-    You are an expert lead enrichment AI. Your job is to extract decision maker names, roles, emails, and social profiles for a business.
-    CRITICAL INSTRUCTION: Analyze the Official Website Markdown first. Look carefully for any Markdown links pointing to social media. Then cross-reference with the Google Search Snippets.
+    You are an expert lead enrichment AI. Your job is to deeply analyze website markdown and search snippets to accurately extract business intelligence.
     
+    CRITICAL INSTRUCTIONS FOR EMAIL EXTRACTION:
+    1. Scan the raw text carefully for any string containing "@".
+    2. Look for "mailto:" links in the markdown.
+    3. Look for phrases like "Contact us at [email]" or "Email: [email]".
+    4. Validate that the email looks like a genuine company or contact email (e.g., info@, support@, owner@, or a personal name).
+    5. ONLY output the email. Do not include surrounding text. If no email is found, output null.
+
+    CRITICAL INSTRUCTIONS FOR SOCIALS & NAMES:
+    1. Find links to linkedin.com, facebook.com, instagram.com, twitter.com/x.com, youtube.com, tiktok.com, and yelp.com.
+    2. Look for names mentioned as CEO, Owner, Founder, President, or Manager.
+
     Business Name: ${lead.business_name}
     Address: ${lead.address}
     Provided Phone: ${lead.phone || 'N/A'}
