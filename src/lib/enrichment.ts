@@ -52,12 +52,7 @@ async function scrapeWebsiteWithAPI(url: string): Promise<string> {
     try {
         console.log(`Sending ${url} to Jina AI Reader API...`);
         // Jina AI renders the JavaScript and returns clean Markdown containing all links and text
-        const response = await fetch(`https://r.jina.ai/${url}`, {
-            headers: {
-                'Accept': 'text/plain',
-                'X-Return-Format': 'markdown'
-            }
-        });
+        const response = await fetch(`https://r.jina.ai/${url}`);
 
         if (!response.ok) return '';
 
@@ -119,7 +114,7 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
       "decision_maker_name": "Name of CEO/Owner/Manager if found, else null",
       "decision_maker_role": "Role (e.g., Owner, CEO) if found, else null",
       "contact_email": "Best contact email if found, else null",
-      "social_profiles": { "linkedin": "url", "facebook": "url", "instagram": "url", "twitter": "url", "youtube": "url", "tiktok": "url", "yelp": "url" } or null,
+      "social_profiles": { "linkedin": "url", "facebook": "url", "instagram": "url", "twitter": "url", "youtube": "url", "tiktok": "url", "yelp": "url" } (ONLY include platforms where a URL was actually found, omit the others. If none found, output null),
       "enrichment_summary": "A 1-2 sentence summary of what this business does and who the key contact is. If lead_quality is bad, explain why."
     }
   `;
