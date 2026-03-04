@@ -4,43 +4,27 @@ import { useState, useEffect, useRef } from 'react';
 import { useLeads } from '@/hooks/useLeads';
 import MapWrapper from '@/components/MapWrapper';
 import LeadList from '@/components/LeadList';
-import { Search, MapPin, LogOut, LogIn } from 'lucide-react';
-import { createClient } from '@/utils/supabase/client';
-import { useRouter } from 'next/navigation';
-
-const ADMIN_EMAIL = 'jerafisabalo@gmail.com';
+import { Search, MapPin, Grid3X3, XCircle, Loader2 } from 'lucide-react';
 
 export default function Dashboard() {
     const { leads, loading, refetch } = useLeads();
-    const [query, setQuery] = useState('marketing agency'); // Default search
-    const [locationText, setLocationText] = useState('San Francisco, CA, USA');
+    const [query, setQuery] = useState('cleaning companies');
+    const [locationText, setLocationText] = useState('Los Angeles, CA, USA');
     const [predictions, setPredictions] = useState<any[]>([]);
     const [showDropdown, setShowDropdown] = useState(false);
+
+    // UI States
     const [isSearching, setIsSearching] = useState(false);
-    const [userEmail, setUserEmail] = useState<string | null>(null);
+    const [isBulkMode, setIsBulkMode] = useState(false);
+    const [gridSize, setGridSize] = useState<number>(3); // 3x3 default
 
-    const router = useRouter();
-    const supabase = createClient();
-
-    useEffect(() => {
-        const getUser = async () => {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                setUserEmail(user.email ?? null);
-            }
-        };
-        getUser();
-    }, [supabase]);
-
-    const handleLogout = async () => {
-        await supabase.auth.signOut();
-        router.push('/login');
-        router.refresh();
-    };
+    // Sweep States
+    const [sweepProgress, setSweepProgress] = useState({ current: 0, total: 0 });
+    const isSweepingRef = useRef(false);
 
     // Default Map Center & Bounds
-    const [mapCenter, setMapCenter] = useState<{ lat: number, lng: number } | null>(null);
-    const [mapBounds, setMapBounds] = useState({ lat: 37.7749, lng: -122.4194, radius: 5000 });
+    const [mapCenter, setMapCenter] = useState<{ lat: number, lng: number } | null>({ lat: 34.0522, lng: -118.2437 });
+    const [mapBounds, setMapBounds] = useState({ lat: 34.0522, lng: -118.2437, radius: 2000 });
     const dropdownRef = useRef<HTMLDivElement>(null);
 
     // Close dropdown on outside click
@@ -53,8 +37,6 @@ export default function Dashboard() {
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
-
-    const [nextPageToken, setNextPageToken] = useState<string | null>(null);
 
     // Fetch Autocomplete Predictions
     useEffect(() => {
@@ -75,7 +57,7 @@ export default function Dashboard() {
             }
         };
 
-        const timer = setTimeout(fetchPredictions, 300); // Debounce
+        const timer = setTimeout(fetchPredictions, 300);
         return () => clearTimeout(timer);
     }, [locationText, showDropdown]);
 
@@ -84,7 +66,6 @@ export default function Dashboard() {
         setShowDropdown(false);
         setPredictions([]);
 
-        // Geocode to get lat/lng for the map
         try {
             const res = await fetch(`/api/geocode?placeId=${placeId}`);
             if (res.ok) {
@@ -98,97 +79,101 @@ export default function Dashboard() {
         }
     };
 
-    const handleSearchArea = async (lat: number, lng: number, radius: number, isLoadMore = false) => {
+    const stopSweep = () => {
+        isSweepingRef.current = false;
+        setIsSearching(false);
+    };
+
+    // The Client-Side Orchestrator
+    const handleSearchArea = async (centerLat: number, centerLng: number, radius: number) => {
         if (!query) return alert('Please enter a search query first');
 
         setIsSearching(true);
-        // Force the UI Dropdown to close and reset old state
         setShowDropdown(false);
         setPredictions([]);
+        isSweepingRef.current = true;
 
-        if (!isLoadMore) {
-            setNextPageToken(null);
+        if (!isBulkMode) {
+            // SINGLE SEARCH (Standard)
+            try {
+                await fetch('/api/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query, latitude: centerLat, longitude: centerLng, radius })
+                });
+                await refetch();
+            } catch (error) {
+                console.error(error);
+                alert('Search failed. Check console.');
+            } finally {
+                setIsSearching(false);
+                isSweepingRef.current = false;
+            }
+            return;
         }
 
-        try {
-            const payload: any = {
-                query,
-                latitude: lat,
-                longitude: lng,
-                radius
-            };
+        // BULK SWEEP MODE
+        const totalSearches = gridSize * gridSize;
+        setSweepProgress({ current: 0, total: totalSearches });
 
-            if (isLoadMore && nextPageToken) {
-                payload.pageToken = nextPageToken;
+        const offset = Math.floor(gridSize / 2);
+        // Approx coordinates step to shift ~2.5km per grid block
+        const LAT_STEP = 0.027;
+        const LNG_STEP = 0.034;
+
+        let completed = 0;
+
+        // Loop through the grid
+        for (let x = -offset; x <= offset; x++) {
+            for (let y = -offset; y <= offset; y++) {
+                if (!isSweepingRef.current) {
+                    console.log("Sweep aborted by user.");
+                    return; // Break the loop if user cancelled
+                }
+
+                const gridLat = centerLat + (x * LAT_STEP);
+                const gridLng = centerLng + (y * LNG_STEP);
+
+                completed++;
+                setSweepProgress({ current: completed, total: totalSearches });
+
+                try {
+                    await fetch('/api/search', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        // Hardcode radius to ~2500m for grid consistency
+                        body: JSON.stringify({ query, latitude: gridLat, longitude: gridLng, radius: 2500 })
+                    });
+
+                    // Refresh UI to show incoming leads
+                    await refetch();
+
+                } catch (error) {
+                    console.error(`Sector failed at ${gridLat}, ${gridLng}:`, error);
+                }
+
+                // Wait 2 seconds between Google calls to avoid 429 Rate Limits
+                // This delay also keeps the browser happy when minimized
+                if (completed < totalSearches) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
             }
-
-            const res = await fetch('/api/search', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(payload)
-            });
-
-            if (!res.ok) {
-                throw new Error('Search failed');
-            }
-
-            const data = await res.json();
-
-            if (data.nextPageToken) {
-                setNextPageToken(data.nextPageToken);
-            } else {
-                setNextPageToken(null); // No more pages
-            }
-
-            // Supabase Realtime might be disabled on the leads table,
-            // so we manually pull the new list to guarantee the UI updates instantly.
-            await refetch();
-        } catch (error) {
-            console.error(error);
-            alert('Search failed. Check console for details.');
-        } finally {
-            setIsSearching(false);
         }
+
+        setIsSearching(false);
+        isSweepingRef.current = false;
     };
 
     return (
-        <div className="flex h-screen w-full bg-neutral-100 overflow-hidden">
+        <div className="flex h-screen w-full bg-neutral-100 overflow-hidden relative">
             {/* Sidebar / List View */}
             <div className="w-1/3 min-w-[400px] h-full flex flex-col bg-white border-r border-neutral-200 z-10 shadow-xl">
-                <div className="p-6 border-b border-neutral-100 bg-white relative">
-                    <div className="absolute top-6 right-6 flex items-center gap-3">
-                        {userEmail ? (
-                            <>
-                                <span className={userEmail === ADMIN_EMAIL ? "text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full" : "text-xs font-medium text-neutral-400"}>
-                                    {userEmail === ADMIN_EMAIL ? 'ADMIN' : userEmail}
-                                </span>
-                                <button
-                                    onClick={handleLogout}
-                                    className="text-neutral-400 hover:text-red-500 transition-colors p-1"
-                                    title="Sign Out"
-                                >
-                                    <LogOut size={16} />
-                                </button>
-                            </>
-                        ) : (
-                            <div className="flex flex-col items-end gap-1">
-                                <button
-                                    onClick={() => router.push('/login')}
-                                    className="text-xs font-medium text-blue-600 hover:text-blue-700 bg-blue-50/50 hover:bg-blue-50 px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-colors border border-blue-100"
-                                >
-                                    <LogIn size={12} /> Admin Login
-                                </button>
-                                <span className="text-[10px] text-neutral-400 font-medium">Guest Limit: 100/day</span>
-                            </div>
-                        )}
-                    </div>
-
+                <div className="p-6 border-b border-neutral-100 bg-white">
                     <h1 className="text-2xl font-bold text-neutral-900 tracking-tight">Nexus Lead Engine</h1>
                     <p className="text-sm text-neutral-500 mt-1 mb-4">Find & enrich local businesses in real-time</p>
 
                     <div className="space-y-3">
+                        {/* Query Input */}
                         <div className="relative flex items-center">
                             <Search className="absolute left-3 text-neutral-400" size={18} />
                             <input
@@ -196,10 +181,12 @@ export default function Dashboard() {
                                 value={query}
                                 onChange={(e) => setQuery(e.target.value)}
                                 placeholder="Industry (e.g. coffee shop, plumbers)"
-                                className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+                                disabled={isSearching}
+                                className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium disabled:opacity-60"
                             />
                         </div>
 
+                        {/* Location Input */}
                         <div className="relative flex items-center" ref={dropdownRef}>
                             <MapPin className="absolute left-3 text-neutral-400" size={18} />
                             <input
@@ -210,11 +197,10 @@ export default function Dashboard() {
                                     setShowDropdown(true);
                                 }}
                                 onFocus={() => setShowDropdown(true)}
+                                disabled={isSearching}
                                 placeholder="Location (Country, State, City)"
-                                className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+                                className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium disabled:opacity-60"
                             />
-
-                            {/* Autocomplete Dropdown */}
                             {showDropdown && predictions.length > 0 && (
                                 <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-neutral-200 rounded-lg shadow-xl max-h-60 overflow-y-auto z-[9999]">
                                     {predictions.map((p) => (
@@ -231,31 +217,51 @@ export default function Dashboard() {
                             )}
                         </div>
 
-                        <button
-                            onClick={() => handleSearchArea(mapBounds.lat, mapBounds.lng, mapBounds.radius)}
-                            disabled={isSearching}
-                            className="w-full mt-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
-                        >
-                            {isSearching ? (
-                                <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                            ) : (
-                                <Search size={18} />
-                            )}
-                            {isSearching ? 'Searching...' : 'Search Leads'}
-                        </button>
+                        {/* Settings Row */}
+                        <div className="flex items-center justify-between bg-neutral-50 p-3 rounded-lg border border-neutral-200">
+                            <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-neutral-700">
+                                <input
+                                    type="checkbox"
+                                    checked={isBulkMode}
+                                    onChange={(e) => setIsBulkMode(e.target.checked)}
+                                    disabled={isSearching}
+                                    className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer disabled:opacity-60"
+                                />
+                                <Grid3X3 size={16} className={isBulkMode ? "text-blue-600" : "text-neutral-400"} />
+                                Bulk Grid Sweep
+                            </label>
 
-                        {nextPageToken && (
+                            {isBulkMode && (
+                                <select
+                                    value={gridSize}
+                                    onChange={(e) => setGridSize(Number(e.target.value))}
+                                    disabled={isSearching}
+                                    className="bg-white border border-neutral-200 text-xs rounded px-2 py-1 outline-none disabled:opacity-60"
+                                >
+                                    <option value={3}>3x3 Grid (9 searches)</option>
+                                    <option value={5}>5x5 Grid (25 searches)</option>
+                                    <option value={10}>10x10 Grid (100 searches)</option>
+                                </select>
+                            )}
+                        </div>
+
+                        {/* Search Action Buttons */}
+                        {isSearching && isBulkMode ? (
                             <button
-                                onClick={() => handleSearchArea(mapBounds.lat, mapBounds.lng, mapBounds.radius, true)}
-                                disabled={isSearching}
-                                className="w-full mt-2 bg-white hover:bg-neutral-50 border border-blue-200 text-blue-600 font-medium py-2 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-70 disabled:cursor-not-allowed shadow-sm"
+                                onClick={stopSweep}
+                                className="w-full mt-2 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition-colors"
                             >
-                                {isSearching ? (
-                                    <div className="w-4 h-4 rounded-full border-2 border-blue-600 border-t-transparent animate-spin" />
-                                ) : (
-                                    <Search size={16} />
-                                )}
-                                Load More Leads
+                                <XCircle size={18} />
+                                Stop Bulk Sweep
+                            </button>
+                        ) : (
+                            <button
+                                onClick={() => handleSearchArea(mapBounds.lat, mapBounds.lng, mapBounds.radius)}
+                                disabled={isSearching}
+                                className="w-full mt-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-70 disabled:cursor-not-allowed shadow-sm"
+                            >
+                                {isSearching ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
+                                {isSearching ? 'Searching...' : isBulkMode ? `Start Bulk Sweep` : 'Search This Area'}
                             </button>
                         )}
                     </div>
@@ -273,10 +279,38 @@ export default function Dashboard() {
                     center={mapCenter}
                     onBoundsChange={(lat, lng, radius) => setMapBounds({ lat, lng, radius })}
                 />
-                {isSearching && (
+
+                {/* Single Search Overlay */}
+                {isSearching && !isBulkMode && (
                     <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur pb-2 pt-2 px-4 rounded-full shadow-lg text-sm font-medium flex items-center gap-2 z-[1000] border border-neutral-100">
-                        <div className="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
+                        <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
                         Searching Area...
+                    </div>
+                )}
+
+                {/* Bulk Sweep Progress Overlay */}
+                {isSearching && isBulkMode && (
+                    <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-96 bg-white/95 backdrop-blur rounded-xl shadow-2xl border border-blue-100 p-5 z-[1000]">
+                        <div className="flex justify-between items-center mb-2">
+                            <h3 className="font-bold text-neutral-900 flex items-center gap-2">
+                                <Loader2 size={16} className="animate-spin text-blue-600" />
+                                Sweeping Grid...
+                            </h3>
+                            <span className="text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-1 rounded-full">
+                                {sweepProgress.current} / {sweepProgress.total}
+                            </span>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="w-full bg-neutral-100 rounded-full h-2 mb-2 overflow-hidden">
+                            <div
+                                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                style={{ width: `${(sweepProgress.current / sweepProgress.total) * 100}%` }}
+                            ></div>
+                        </div>
+                        <p className="text-xs text-neutral-500 text-center">
+                            Keep this tab open. Map coordinates are shifting automatically.
+                        </p>
                     </div>
                 )}
             </div>

@@ -1,20 +1,20 @@
 'use client';
 
 import { Lead } from '@/types';
-import { Loader2, CheckCircle2, XCircle, Clock, MapPin, Globe, Phone, Mail, Linkedin, X, Building2, Copy, Check, User, Sparkles, Download, Youtube, Facebook, Twitter, Instagram, Video, Store, Search } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, Clock, MapPin, Globe, Phone, Mail, Linkedin, Sparkles, Download } from 'lucide-react';
 import { useState } from 'react';
 
 export default function LeadList({ leads, loading, isSearching, refetch }: { leads: Lead[], loading: boolean, isSearching: boolean, refetch?: () => void }) {
     const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
     const [enrichingIds, setEnrichingIds] = useState<Set<string>>(new Set());
-    const [activeTab, setActiveTab] = useState<'overview' | 'insights'>('overview');
-    const [copiedField, setCopiedField] = useState<string | null>(null);
     const [batchSize, setBatchSize] = useState<string>('5');
     const [isBatchEnriching, setIsBatchEnriching] = useState(false);
 
+    // New Progress State for Enrichment
+    const [enrichProgress, setEnrichProgress] = useState({ current: 0, total: 0 });
+
     const handleEnrich = async (leadId: string) => {
         setEnrichingIds(prev => new Set(prev).add(leadId));
-        setActiveTab('insights'); // Auto-switch to insights tab when enriching
         try {
             const res = await fetch('/api/enrich', {
                 method: 'POST',
@@ -35,42 +35,52 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
         }
     };
 
-    const handleCopy = (text: string, fieldId: string) => {
-        navigator.clipboard.writeText(text);
-        setCopiedField(fieldId);
-        setTimeout(() => setCopiedField(null), 2000);
-    };
-
+    // Client-Side Orchestrator for Safe Batch Enrichment
     const handleBatchEnrich = async () => {
         const pendingLeads = leads.filter(l => l.status === 'pending');
         if (pendingLeads.length === 0) return alert('No pending leads to enrich.');
 
         const limit = batchSize === 'all' ? pendingLeads.length : parseInt(batchSize, 10);
         const leadsToProcess = pendingLeads.slice(0, limit);
-        const leadIds = leadsToProcess.map(l => l.id);
 
         setIsBatchEnriching(true);
-        setEnrichingIds(prev => new Set([...prev, ...leadIds]));
+        setEnrichProgress({ current: 0, total: leadsToProcess.length });
 
-        try {
-            const res = await fetch('/api/enrich', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ leadIds }),
-            });
-            if (!res.ok) throw new Error('Batch enrichment failed');
-            if (refetch) refetch();
-        } catch (error) {
-            console.error('Failed to trigger batch enrichment:', error);
-            alert('Failed to trigger batch enrichment. Check console.');
-        } finally {
-            setIsBatchEnriching(false);
+        // Process in chunks of 5 to prevent Vercel/Next.js timeouts
+        const CHUNK_SIZE = 5;
+
+        for (let i = 0; i < leadsToProcess.length; i += CHUNK_SIZE) {
+            const chunk = leadsToProcess.slice(i, i + CHUNK_SIZE);
+            const chunkIds = chunk.map(l => l.id);
+
+            setEnrichingIds(prev => new Set([...prev, ...chunkIds]));
+
+            try {
+                await fetch('/api/enrich', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ leadIds: chunkIds }),
+                });
+
+                // Update UI after every chunk finishes
+                if (refetch) refetch();
+
+            } catch (error) {
+                console.error('Batch chunk failed:', error);
+            }
+
+            // Update Progress Bar
+            setEnrichProgress({ current: Math.min(i + CHUNK_SIZE, leadsToProcess.length), total: leadsToProcess.length });
+
+            // Clear chunk from loading state
             setEnrichingIds(prev => {
                 const newSet = new Set(prev);
-                leadIds.forEach(id => newSet.delete(id));
+                chunkIds.forEach(id => newSet.delete(id));
                 return newSet;
             });
         }
+
+        setIsBatchEnriching(false);
     };
 
     const handleExportCSV = () => {
@@ -96,23 +106,12 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
             };
 
             return [
-                escapeCsv(lead.business_name),
-                escapeCsv(lead.address),
-                escapeCsv(lead.phone),
-                escapeCsv(lead.website),
-                escapeCsv(lead.status),
-                escapeCsv(lead.decision_maker_name),
-                escapeCsv(lead.decision_maker_role),
-                escapeCsv(lead.contact_email),
-                escapeCsv(getSocial('linkedin')),
-                escapeCsv(getSocial('facebook')),
-                escapeCsv(getSocial('instagram')),
-                escapeCsv(getSocial('twitter') || getSocial('x')),
-                escapeCsv(getSocial('youtube')),
-                escapeCsv(getSocial('tiktok')),
-                escapeCsv(getSocial('google')),
-                escapeCsv(getSocial('yelp')),
-                escapeCsv(lead.enrichment_summary)
+                escapeCsv(lead.business_name), escapeCsv(lead.address), escapeCsv(lead.phone),
+                escapeCsv(lead.website), escapeCsv(lead.status), escapeCsv(lead.decision_maker_name),
+                escapeCsv(lead.decision_maker_role), escapeCsv(lead.contact_email), escapeCsv(getSocial('linkedin')),
+                escapeCsv(getSocial('facebook')), escapeCsv(getSocial('instagram')), escapeCsv(getSocial('twitter') || getSocial('x')),
+                escapeCsv(getSocial('youtube')), escapeCsv(getSocial('tiktok')), escapeCsv(getSocial('google')),
+                escapeCsv(getSocial('yelp')), escapeCsv(lead.enrichment_summary)
             ].join(',');
         });
 
@@ -129,32 +128,25 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
     };
 
     if (loading && leads.length === 0) {
-        return (
-            <div className="h-full flex flex-col items-center justify-center space-y-3 text-neutral-400">
-                <Loader2 className="animate-spin text-blue-500" size={24} />
-                <p className="text-sm font-medium">Loading database...</p>
-            </div>
-        );
+        return <div className="p-8 text-center text-neutral-400 animate-pulse">Loading leads database...</div>;
     }
 
     if (!loading && leads.length === 0 && !isSearching) {
         return (
             <div className="h-full flex flex-col items-center justify-center p-8 text-neutral-400">
-                <div className="w-12 h-12 bg-neutral-100 rounded-full flex items-center justify-center mb-3">
-                    <MapPin size={24} className="text-neutral-300" />
-                </div>
-                <p className="font-medium text-neutral-600 text-sm">No leads in this area.</p>
-                <p className="text-xs text-center mt-1">Move the map and click search to populate your list.</p>
+                <MapPin size={48} className="mb-4 text-neutral-200" />
+                <p className="text-center font-medium text-neutral-500">No leads found yet.</p>
+                <p className="text-center text-sm mt-1">Move the map and click "Search This Area" to begin.</p>
             </div>
         );
     }
 
     const getStatusIcon = (status: string) => {
         switch (status) {
-            case 'verified': return <CheckCircle2 size={14} />;
-            case 'researching': return <Loader2 className="animate-spin" size={14} />;
-            case 'failed': return <XCircle size={14} />;
-            case 'pending': default: return <Clock size={14} />;
+            case 'verified': return <CheckCircle2 className="text-emerald-500" size={16} />;
+            case 'researching': return <Loader2 className="text-blue-500 animate-spin" size={16} />;
+            case 'failed': return <XCircle className="text-red-500" size={16} />;
+            case 'pending': default: return <Clock className="text-neutral-400" size={16} />;
         }
     };
 
@@ -169,312 +161,232 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
         <div className="relative h-full flex flex-col">
             {/* Top Bar for Batch Actions */}
             {!loading && leads.length > 0 && (
-                <div className="flex items-center justify-between p-4 bg-white border-b border-neutral-200 shrink-0 relative z-30">
-                    <div className="flex items-center gap-2">
-                        <select
-                            value={batchSize}
-                            onChange={(e) => setBatchSize(e.target.value)}
-                            className="bg-neutral-50 border border-neutral-200 text-sm rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                            disabled={isBatchEnriching}
-                        >
-                            <option value="5">5 Leads</option>
-                            <option value="10">10 Leads</option>
-                            <option value="100">100 Leads</option>
-                            <option value="all">All Leads</option>
-                        </select>
+                <div className="flex flex-col bg-white border-b border-neutral-200 shrink-0">
+                    <div className="flex items-center justify-between p-4">
+                        <div className="flex items-center gap-2">
+                            <select
+                                value={batchSize}
+                                onChange={(e) => setBatchSize(e.target.value)}
+                                className="bg-neutral-50 border border-neutral-200 text-sm rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                disabled={isBatchEnriching}
+                            >
+                                <option value="5">5 Leads</option>
+                                <option value="10">10 Leads</option>
+                                <option value="100">100 Leads</option>
+                                <option value="all">All Leads</option>
+                            </select>
+                            <button
+                                onClick={handleBatchEnrich}
+                                disabled={isBatchEnriching || leads.filter(l => l.status === 'pending').length === 0}
+                                className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {isBatchEnriching ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                                {isBatchEnriching ? 'Enriching...' : 'Enrich'}
+                            </button>
+                        </div>
                         <button
-                            onClick={handleBatchEnrich}
-                            disabled={isBatchEnriching || leads.filter(l => l.status === 'pending').length === 0}
-                            className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            onClick={handleExportCSV}
+                            className="flex items-center gap-1.5 bg-white hover:bg-neutral-50 border border-neutral-200 text-neutral-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
                         >
-                            {isBatchEnriching ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                            {isBatchEnriching ? 'Enriching...' : 'Mass Enrich'}
+                            <Download size={14} />
+                            Export CSV
                         </button>
                     </div>
-                    <button
-                        onClick={handleExportCSV}
-                        className="flex items-center gap-1.5 bg-white hover:bg-neutral-50 border border-neutral-200 text-neutral-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
-                    >
-                        <Download size={14} />
-                        Export CSV
-                    </button>
+
+                    {/* NEW: AI Enrichment Progress Bar */}
+                    {isBatchEnriching && (
+                        <div className="px-4 pb-4 animate-in fade-in slide-in-from-top-2">
+                            <div className="flex justify-between items-center mb-1.5">
+                                <span className="text-xs font-semibold text-blue-600 flex items-center gap-1.5">
+                                    <Sparkles size={12} /> AI Enrichment in Progress
+                                </span>
+                                <span className="text-xs font-bold text-neutral-600">
+                                    {enrichProgress.current} / {enrichProgress.total}
+                                </span>
+                            </div>
+                            <div className="w-full bg-neutral-100 rounded-full h-1.5 overflow-hidden">
+                                <div
+                                    className="bg-gradient-to-r from-blue-500 to-indigo-500 h-1.5 rounded-full transition-all duration-500"
+                                    style={{ width: `${(enrichProgress.current / enrichProgress.total) * 100}%` }}
+                                ></div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 
-            {/* Left Panel List */}
-            <div className="flex flex-col w-full flex-1 overflow-y-auto pb-20 relative z-20">
+            <div className="flex-1 overflow-y-auto w-full flex flex-col shadow-inner">
                 {leads.map((lead) => (
                     <div
                         key={lead.id}
-                        onClick={() => {
-                            setSelectedLead(lead);
-                            setActiveTab(lead.status === 'verified' ? 'insights' : 'overview');
-                        }}
-                        className={`group px-5 py-4 border-b border-neutral-100 cursor-pointer transition-all hover:bg-neutral-50 ${selectedLead?.id === lead.id ? 'bg-blue-50/50 border-l-2 border-l-blue-500' : 'border-l-2 border-l-transparent'}`}
+                        onClick={() => setSelectedLead(lead)}
+                        className="group px-6 py-4 border-b border-neutral-200/60 bg-white hover:bg-neutral-50 cursor-pointer transition-colors"
                     >
-                        <div className="flex items-start justify-between gap-3">
-                            <div className="flex-1 min-w-0">
-                                <h3 className="text-sm font-semibold text-neutral-900 truncate group-hover:text-blue-600 transition-colors">
+                        <div className="flex items-start justify-between">
+                            <div className="w-[80%]">
+                                <h3 className="font-semibold text-neutral-900 group-hover:text-blue-600 transition-colors truncate">
                                     {lead.business_name}
                                 </h3>
-                                <div className="flex items-center gap-1.5 mt-1 text-xs text-neutral-500 truncate">
-                                    <MapPin size={12} className="shrink-0" />
-                                    <span className="truncate">{lead.address}</span>
-                                </div>
+                                <p className="text-xs text-neutral-500 truncate mt-1">{lead.address}</p>
                             </div>
-                            <div className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${statusColors[lead.status]}`}>
-                                {getStatusIcon(lead.status)}
-                                <span className="capitalize tracking-wide">{lead.status}</span>
+                            <div className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${enrichingIds.has(lead.id) ? statusColors.researching : statusColors[lead.status]}`}>
+                                {enrichingIds.has(lead.id) ? <Loader2 className="animate-spin text-blue-500" size={16} /> : getStatusIcon(lead.status)}
+                                <span className="capitalize">{enrichingIds.has(lead.id) ? 'researching' : lead.status}</span>
                             </div>
                         </div>
+
+                        {lead.status === 'verified' && (
+                            <div className="mt-3 flex items-center gap-4 text-xs font-medium text-neutral-600 bg-neutral-50/50 p-2 rounded-md border border-neutral-100">
+                                {lead.decision_maker_name ? (
+                                    <span className="flex items-center gap-1.5 text-neutral-800"><CheckCircle2 size={13} className="text-emerald-500" />{lead.decision_maker_name}</span>
+                                ) : (
+                                    <span className="text-neutral-400">No contact found</span>
+                                )}
+
+                                {lead.contact_email && (
+                                    <span className="flex items-center gap-1"><Mail size={12} />{lead.contact_email}</span>
+                                )}
+                            </div>
+                        )}
                     </div>
                 ))}
             </div>
 
-            {/* Slide-Over Drawer Overlay */}
+            {/* Slide-over Details Panel */}
             {selectedLead && (
-                <div
-                    className="fixed inset-0 top-16 left-[420px] bg-neutral-900/10 backdrop-blur-[2px] z-40 transition-opacity animate-in fade-in"
-                    onClick={() => setSelectedLead(null)}
-                />
-            )}
-
-            {/* Drawer Panel */}
-            <div
-                className={`fixed top-16 right-0 bottom-0 w-[500px] bg-white border-l border-neutral-200 shadow-2xl z-50 transform transition-transform duration-300 ease-in-out flex flex-col ${selectedLead ? 'translate-x-0' : 'translate-x-full'
-                    }`}
-            >
-                {selectedLead && (
-                    <>
-                        {/* Drawer Header */}
-                        <div className="px-6 pt-6 pb-0 border-b border-neutral-200 flex flex-col bg-white shrink-0">
-                            <div className="flex justify-between items-start mb-4">
-                                <div className="flex gap-4 items-start">
-                                    <div className={`mt-1 p-2.5 rounded-xl border shadow-sm ${statusColors[selectedLead.status]}`}>
-                                        <Building2 size={24} />
-                                    </div>
-                                    <div>
-                                        <h2 className="font-bold text-xl text-neutral-900 leading-tight">{selectedLead.business_name}</h2>
-                                        <div className="flex items-center gap-2 mt-2">
-                                            <div className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider border ${statusColors[selectedLead.status]}`}>
-                                                {getStatusIcon(selectedLead.status)}
-                                                {selectedLead.status}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <button
-                                    onClick={() => setSelectedLead(null)}
-                                    className="p-1.5 text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 rounded-md transition-colors"
-                                >
-                                    <X size={20} />
-                                </button>
+                <div className="absolute inset-0 bg-white z-50 flex flex-col shadow-[-10px_0_30px_rgba(0,0,0,0.05)] animate-in slide-in-from-right-full">
+                    <div className="px-6 py-5 border-b border-neutral-100 bg-neutral-50/50 flex items-center justify-between shadow-sm">
+                        <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-full bg-white border shadow-sm ${statusColors[selectedLead.status]}`}>
+                                {getStatusIcon(selectedLead.status)}
                             </div>
+                            <div>
+                                <h2 className="font-bold text-lg text-neutral-900 tracking-tight">{selectedLead.business_name}</h2>
+                                <div className="text-xs font-semibold text-neutral-500 uppercase tracking-widest">{selectedLead.status}</div>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => setSelectedLead(null)}
+                            className="p-2 bg-white hover:bg-neutral-200 rounded-full transition-colors border shadow-sm"
+                        >
+                            <XCircle size={20} className="text-neutral-500" />
+                        </button>
+                    </div>
 
-                            {/* Tabs Navigation */}
-                            <div className="flex gap-6 mt-2">
-                                <button
-                                    onClick={() => setActiveTab('overview')}
-                                    className={`pb-3 text-sm font-semibold transition-colors border-b-2 ${activeTab === 'overview' ? 'border-blue-600 text-blue-600' : 'border-transparent text-neutral-500 hover:text-neutral-800'}`}
-                                >
-                                    Company Overview
-                                </button>
-                                <button
-                                    onClick={() => setActiveTab('insights')}
-                                    className={`pb-3 text-sm font-semibold transition-colors border-b-2 flex items-center gap-1.5 ${activeTab === 'insights' ? 'border-blue-600 text-blue-600' : 'border-transparent text-neutral-500 hover:text-neutral-800'}`}
-                                >
-                                    <Sparkles size={14} /> AI Insights
-                                </button>
+                    <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
+                        <div className="space-y-4">
+                            <h4 className="text-xs font-bold text-neutral-400 tracking-wider uppercase">Business Info</h4>
+                            <div className="bg-neutral-50 p-4 rounded-xl border border-neutral-100 space-y-3 font-medium text-sm">
+                                <div className="flex items-start gap-3">
+                                    <MapPin size={16} className="text-neutral-400 mt-0.5 shrink-0" />
+                                    <span className="text-neutral-700">{selectedLead.address}</span>
+                                </div>
+                                {selectedLead.phone && (
+                                    <div className="flex items-center gap-3">
+                                        <Phone size={16} className="text-neutral-400 shrink-0" />
+                                        <span className="text-neutral-700">{selectedLead.phone}</span>
+                                    </div>
+                                )}
+                                {selectedLead.website && (
+                                    <div className="flex items-center gap-3">
+                                        <Globe size={16} className="text-neutral-400 shrink-0" />
+                                        <a href={selectedLead.website} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline truncate">
+                                            {selectedLead.website}
+                                        </a>
+                                    </div>
+                                )}
                             </div>
                         </div>
 
-                        {/* Drawer Body - Scrollable */}
-                        <div className="flex-1 overflow-y-auto p-6 bg-neutral-50/50">
-
-                            {/* TAB 1: OVERVIEW */}
-                            {activeTab === 'overview' && (
-                                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                    <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5 space-y-5">
-                                        <h4 className="text-[11px] font-bold text-neutral-400 tracking-wider uppercase">Location & Contact</h4>
-
-                                        <div className="flex items-start gap-3 text-sm">
-                                            <MapPin size={16} className="text-neutral-400 mt-0.5" />
-                                            <span className="text-neutral-700 font-medium">{selectedLead.address}</span>
+                        <div className="space-y-4">
+                            <h4 className="text-xs font-bold text-neutral-400 tracking-wider uppercase">AI Enrichment Data</h4>
+                            <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm space-y-4">
+                                {selectedLead.status === 'researching' || enrichingIds.has(selectedLead.id) ? (
+                                    <div className="flex bg-blue-50 text-blue-700 p-4 rounded-lg items-center gap-3 text-sm font-medium">
+                                        <Loader2 size={18} className="animate-spin shrink-0" />
+                                        Gemini is currently finding the decision makers, socials, and contact info...
+                                    </div>
+                                ) : selectedLead.status === 'pending' ? (
+                                    <div className="flex flex-col items-center justify-center p-6 bg-neutral-50 rounded-lg text-center gap-3 border border-neutral-100">
+                                        <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm border border-neutral-200">
+                                            <Sparkles size={24} className="text-blue-600" />
+                                        </div>
+                                        <div>
+                                            <h4 className="font-semibold text-neutral-900">Unlock Hidden Details</h4>
+                                            <p className="text-sm text-neutral-500 mt-1 max-w-xs mx-auto">Click below to deploy Gemini AI to search for decision makers, emails, and social profiles for this business.</p>
+                                        </div>
+                                        <button
+                                            onClick={() => handleEnrich(selectedLead.id)}
+                                            className="mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-medium py-2.5 px-6 rounded-lg flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95"
+                                        >
+                                            <Sparkles size={16} />
+                                            Enrich with AI
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <div className="text-xs text-neutral-400 font-medium mb-1">Decision Maker</div>
+                                                <div className="font-semibold text-neutral-900 border-b border-neutral-100 pb-2">
+                                                    {selectedLead.decision_maker_name || <span className="text-neutral-300 font-normal">Not found</span>}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <div className="text-xs text-neutral-400 font-medium mb-1">Role</div>
+                                                <div className="font-semibold text-neutral-900 border-b border-neutral-100 pb-2">
+                                                    {selectedLead.decision_maker_role || <span className="text-neutral-300 font-normal">Not found</span>}
+                                                </div>
+                                            </div>
+                                            <div className="col-span-2">
+                                                <div className="text-xs text-neutral-400 font-medium mb-1">Direct Contact Email</div>
+                                                <div className="font-semibold text-neutral-900 border-b border-neutral-100 pb-2 flex items-center gap-2">
+                                                    <Mail size={14} className="text-neutral-400" />
+                                                    {selectedLead.contact_email ? (
+                                                        <a href={`mailto:${selectedLead.contact_email}`} className="text-blue-600 hover:underline">{selectedLead.contact_email}</a>
+                                                    ) : <span className="text-neutral-300 font-normal">Not found</span>}
+                                                </div>
+                                            </div>
                                         </div>
 
-                                        {selectedLead.phone && (
-                                            <div className="flex items-center justify-between group">
-                                                <div className="flex items-center gap-3 text-sm">
-                                                    <Phone size={16} className="text-neutral-400" />
-                                                    <span className="text-neutral-700 font-medium">{selectedLead.phone}</span>
+                                        {selectedLead.enrichment_summary && (
+                                            <div>
+                                                <div className="text-xs text-neutral-400 font-medium mb-1.5 flex items-center gap-1.5">
+                                                    <Sparkles size={14} className="text-blue-500" />
+                                                    AI Summary
                                                 </div>
-                                                <button onClick={() => handleCopy(selectedLead.phone!, 'phone')} className="text-neutral-400 hover:text-blue-600 p-1.5 rounded-md hover:bg-blue-50 transition-colors opacity-0 group-hover:opacity-100">
-                                                    {copiedField === 'phone' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                                                </button>
-                                            </div>
-                                        )}
-
-                                        {selectedLead.website && (
-                                            <div className="flex items-center gap-3 text-sm">
-                                                <Globe size={16} className="text-neutral-400" />
-                                                <a href={selectedLead.website} target="_blank" rel="noreferrer" className="text-blue-600 font-medium hover:underline truncate">
-                                                    {selectedLead.website}
-                                                </a>
-                                            </div>
-                                        )}
-
-                                        {selectedLead.contact_email && (
-                                            <div className="flex items-center justify-between group pt-2 border-t border-neutral-100">
-                                                <div className="flex items-center gap-3 text-sm">
-                                                    <Mail size={16} className="text-neutral-400" />
-                                                    <a href={`mailto:${selectedLead.contact_email}`} className="text-blue-600 font-medium hover:underline truncate">
-                                                        {selectedLead.contact_email}
-                                                    </a>
+                                                <div className="text-sm text-neutral-700 leading-relaxed bg-neutral-50 p-3 rounded-lg border border-neutral-100">
+                                                    {selectedLead.enrichment_summary}
                                                 </div>
-                                                <button onClick={() => handleCopy(selectedLead.contact_email!, 'email_overview')} className="text-neutral-400 hover:text-blue-600 p-1.5 rounded-md hover:bg-blue-50 transition-colors opacity-0 group-hover:opacity-100">
-                                                    {copiedField === 'email_overview' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                                                </button>
                                             </div>
                                         )}
-                                    </div>
 
-                                    {/* Social Profiles Grid */}
-                                    <div className="bg-white rounded-xl border border-neutral-200 shadow-sm p-5 space-y-4">
-                                        <h4 className="text-[11px] font-bold text-neutral-400 tracking-wider uppercase">Social Media</h4>
-                                        <div className="flex flex-wrap gap-2">
-                                            {[
-                                                { id: 'yelp', label: 'Yelp', icon: Store, colorClass: 'text-red-500' },
-                                                { id: 'google', label: 'Google', icon: Search, colorClass: 'text-blue-500' },
-                                                { id: 'tiktok', label: 'Tiktok', icon: Video, colorClass: 'text-black' },
-                                                { id: 'twitter', label: 'Twitter', icon: Twitter, colorClass: 'text-sky-500' },
-                                                { id: 'youtube', label: 'Youtube', icon: Youtube, colorClass: 'text-red-600' },
-                                                { id: 'facebook', label: 'Facebook', icon: Facebook, colorClass: 'text-blue-600' },
-                                                { id: 'linkedin', label: 'Linkedin', icon: Linkedin, colorClass: 'text-blue-700' },
-                                                { id: 'instagram', label: 'Instagram', icon: Instagram, colorClass: 'text-pink-600' },
-                                            ].map(({ id, label, icon: Icon, colorClass }) => {
-                                                const url = selectedLead.social_profiles?.[id] || selectedLead.social_profiles?.[id.toLowerCase()];
-                                                const hasLink = !!url;
-
-                                                if (hasLink) {
-                                                    return (
+                                        {selectedLead.social_profiles && Object.keys(selectedLead.social_profiles).length > 0 && (
+                                            <div className="pt-2">
+                                                <div className="text-xs text-neutral-400 font-medium mb-2">Social Profiles</div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {Object.entries(selectedLead.social_profiles).map(([network, url]) => (
                                                         <a
-                                                            key={id}
+                                                            key={network}
                                                             href={url as string}
                                                             target="_blank"
                                                             rel="noreferrer"
-                                                            className="px-4 py-2 bg-neutral-50 hover:bg-neutral-100 border border-neutral-200 text-neutral-700 text-xs font-bold rounded-lg flex items-center gap-2 transition-colors"
+                                                            className="px-3 py-1.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-semibold rounded-full capitalize flex items-center gap-1.5 transition-colors border border-neutral-200"
                                                         >
-                                                            <Icon size={14} className={colorClass} />
-                                                            {label}
+                                                            {network === 'linkedin' ? <Linkedin size={12} /> : <Globe size={12} />}
+                                                            {network}
                                                         </a>
-                                                    );
-                                                }
-
-                                                return (
-                                                    <div
-                                                        key={id}
-                                                        className="px-4 py-2 bg-white border border-neutral-200 text-neutral-400 text-xs font-bold rounded-lg flex items-center gap-2 cursor-not-allowed opacity-60"
-                                                    >
-                                                        <Icon size={14} className="text-neutral-400" />
-                                                        {label}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* TAB 2: AI INSIGHTS */}
-                            {activeTab === 'insights' && (
-                                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                    {selectedLead.status === 'researching' || enrichingIds.has(selectedLead.id) ? (
-                                        <div className="bg-white rounded-xl border border-blue-100 p-8 flex flex-col items-center text-center gap-4 shadow-sm">
-                                            <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center">
-                                                <Loader2 size={24} className="animate-spin text-blue-600" />
-                                            </div>
-                                            <div>
-                                                <p className="text-base font-semibold text-blue-900">Gemini is searching...</p>
-                                                <p className="text-sm text-blue-600/70 mt-1">Cross-referencing the web for decision makers and emails.</p>
-                                            </div>
-                                        </div>
-                                    ) : selectedLead.status === 'pending' ? (
-                                        <div className="bg-gradient-to-br from-white to-blue-50/50 rounded-xl border border-blue-100 p-8 flex flex-col items-center text-center gap-4 shadow-sm relative overflow-hidden">
-                                            <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center shadow-md border border-blue-100 z-10">
-                                                <img src="https://www.gstatic.com/lamda/images/gemini_sparkle_v002_d4735304ff6292a690345.svg" width="28" alt="Gemini" />
-                                            </div>
-                                            <div className="z-10">
-                                                <h4 className="text-lg font-bold text-neutral-900">Unlock Deep Insights</h4>
-                                                <p className="text-sm text-neutral-500 mt-2 max-w-[280px]">Deploy the background worker to find the owner's name, direct contact info, and business summary.</p>
-                                            </div>
-                                            <button
-                                                onClick={() => handleEnrich(selectedLead.id)}
-                                                className="mt-2 w-full max-w-[250px] bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl text-sm transition-all shadow-md active:scale-[0.98] z-10"
-                                            >
-                                                Run AI Enrichment
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <>
-                                            {/* Key Contact Card */}
-                                            <div className="bg-white rounded-xl border border-emerald-100 shadow-sm p-1 relative overflow-hidden">
-                                                <div className="absolute top-0 left-0 w-1 h-full bg-emerald-500"></div>
-                                                <div className="p-4 space-y-4">
-                                                    <h4 className="text-[11px] font-bold text-neutral-400 tracking-wider uppercase ml-2">Primary Decision Maker</h4>
-
-                                                    <div className="flex items-start gap-3 ml-2">
-                                                        <div className="w-10 h-10 rounded-full bg-neutral-100 flex items-center justify-center shrink-0 border border-neutral-200">
-                                                            <User size={18} className="text-neutral-500" />
-                                                        </div>
-                                                        <div className="flex-1">
-                                                            <div className="text-base font-bold text-neutral-900">
-                                                                {selectedLead.decision_maker_name || <span className="text-neutral-400 italic font-normal">Not found</span>}
-                                                            </div>
-                                                            <div className="text-sm text-neutral-500 font-medium mt-0.5">
-                                                                {selectedLead.decision_maker_role || 'Role unknown'}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="ml-2 pt-3 border-t border-neutral-100 flex items-center justify-between group">
-                                                        <div className="flex items-center gap-2">
-                                                            <Mail size={16} className="text-neutral-400" />
-                                                            {selectedLead.contact_email ? (
-                                                                <a href={`mailto:${selectedLead.contact_email}`} className="text-sm font-semibold text-blue-600 hover:underline">
-                                                                    {selectedLead.contact_email}
-                                                                </a>
-                                                            ) : <span className="text-sm text-neutral-400 italic">No email found</span>}
-                                                        </div>
-                                                        {selectedLead.contact_email && (
-                                                            <button onClick={() => handleCopy(selectedLead.contact_email!, 'email')} className="text-neutral-400 hover:text-blue-600 p-1.5 rounded-md hover:bg-blue-50 transition-colors opacity-0 group-hover:opacity-100">
-                                                                {copiedField === 'email' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                                                            </button>
-                                                        )}
-                                                    </div>
+                                                    ))}
                                                 </div>
                                             </div>
-
-                                            {/* AI Summary Brief */}
-                                            {selectedLead.enrichment_summary && (
-                                                <div className="bg-gradient-to-br from-indigo-50/50 to-blue-50/30 rounded-xl border border-blue-100 p-5 shadow-sm">
-                                                    <span className="text-xs font-bold text-indigo-600 flex items-center gap-1.5 mb-3 uppercase tracking-wider">
-                                                        <img src="https://www.gstatic.com/lamda/images/gemini_sparkle_v002_d4735304ff6292a690345.svg" width="14" alt="Gemini" />
-                                                        Executive Brief
-                                                    </span>
-                                                    <p className="text-sm text-neutral-800 leading-relaxed font-medium">
-                                                        {selectedLead.enrichment_summary}
-                                                    </p>
-                                                </div>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
-                            )}
-
+                                        )}
+                                    </>
+                                )}
+                            </div>
                         </div>
-                    </>
-                )}
-            </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
