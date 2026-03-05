@@ -93,7 +93,7 @@ async function extractRawSocials(url: string): Promise<string[]> {
 }
 
 // --- MAIN ENGINE: Process Enrichment ---
-export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
+export async function processEnrichment(lead: Lead, criteria?: { description: string, target: string }): Promise<Partial<Lead>> {
     let websiteUrl = lead.website;
     let searchContext = '';
     let scrapedText = '';
@@ -132,6 +132,9 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
         ? `\n--- Social Links Found Hidden in Website Footer ---\n${rawSocialLinks.join('\n')}`
         : '';
 
+    const targetDesc = criteria?.description || 'business';
+    const targetFocus = criteria?.target || 'any';
+
     // 3. Prepare Gemini Prompt 
     const prompt = `
     You are an expert lead generation data analyst. Your job is to extract decision-maker contact info, find social profiles, and flag "bad" leads.
@@ -151,7 +154,10 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
     CRITICAL INSTRUCTIONS:
     1. Scan the "Social Links Found Hidden in Website Footer" and the Google Search snippets to build a complete list of social profiles.
     2. Look for explicit emails, owner names, or management team members. Do not guess emails.
-    3. Categorize the lead. If this looks like a residential home, an apartment complex, a permanently closed business, or completely unrelated to commercial business, set the "lead_quality" to "bad" and explain why in the summary.
+    3. CATEGORIZATION RULES: You are looking specifically for a "${targetDesc}". The target market focus must be "${targetFocus}". 
+       - If the target market is "Commercial/B2B" and this business strictly serves "Residential/Consumers" (or vice versa), set the "lead_quality" to "bad" and explain why.
+       - If it is a permanently closed business, or completely unrelated to a "${targetDesc}", set the "lead_quality" to "bad".
+       - Otherwise, set it to "good".
     
     Task: Extract the following information as STRICT JSON without markdown fences or extra text:
     {
