@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, Schema, SchemaType } from '@google/generative-ai';
 import { Lead } from '@/types';
 
 // Environment variables
@@ -8,10 +8,37 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 // Initialize Gemini
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY!);
+
+const responseSchema: Schema = {
+    type: SchemaType.OBJECT,
+    properties: {
+        lead_quality: { type: SchemaType.STRING, description: "'good' or 'bad'" },
+        decision_maker_name: { type: SchemaType.STRING, nullable: true },
+        decision_maker_role: { type: SchemaType.STRING, nullable: true },
+        contact_email: { type: SchemaType.STRING, nullable: true },
+        social_profiles: {
+            type: SchemaType.OBJECT,
+            nullable: true,
+            properties: {
+                linkedin: { type: SchemaType.STRING, nullable: true },
+                facebook: { type: SchemaType.STRING, nullable: true },
+                instagram: { type: SchemaType.STRING, nullable: true },
+                twitter: { type: SchemaType.STRING, nullable: true },
+                youtube: { type: SchemaType.STRING, nullable: true },
+                tiktok: { type: SchemaType.STRING, nullable: true },
+                yelp: { type: SchemaType.STRING, nullable: true }
+            }
+        },
+        enrichment_summary: { type: SchemaType.STRING }
+    },
+    required: ["lead_quality", "enrichment_summary"]
+};
+
 const model = genAI.getGenerativeModel({
     model: 'gemini-2.5-flash',
     generationConfig: {
         responseMimeType: "application/json",
+        responseSchema: responseSchema
     }
 });
 
@@ -182,8 +209,47 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
     }
 }
 
-// Added to fix missing import in route.ts
+// Bare-metal fast extraction logic
 export async function fastExtractSocials(url: string): Promise<{ profiles: Record<string, string>, email: string | null } | null> {
-    // Placeholder implementation
-    return null;
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+        const response = await fetch(url, {
+            signal: controller.signal,
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+        });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) return null;
+
+        const html = await response.text(); // Scan full HTML
+
+        const profiles: Record<string, string> = {};
+        let email: string | null = null;
+
+        const extractMatch = (regex: RegExp) => {
+            const match = html.match(regex);
+            return match ? match[1] || match[0] : null;
+        };
+
+        const fb = extractMatch(/(https?:\/\/(?:www\.)?facebook\.com\/[^"'\s<]+)/i);
+        if (fb) profiles.facebook = fb;
+
+        const ig = extractMatch(/(https?:\/\/(?:www\.)?instagram\.com\/[^"'\s<]+)/i);
+        if (ig) profiles.instagram = ig;
+
+        const li = extractMatch(/(https?:\/\/(?:www\.)?(?:linkedin\.com)\/(?:company|in)\/[^"'\s<]+)/i);
+        if (li) profiles.linkedin = li;
+
+        const yelp = extractMatch(/(https?:\/\/(?:www\.)?yelp\.com\/biz\/[^"'\s<]+)/i);
+        if (yelp) profiles.yelp = yelp;
+
+        const emailMatch = html.match(/mailto:([a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4})/i);
+        if (emailMatch) email = emailMatch[1];
+
+        return { profiles, email };
+    } catch (e) {
+        return null;
+    }
 }
