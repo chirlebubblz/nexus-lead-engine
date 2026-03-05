@@ -11,16 +11,18 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
     const [isBatchEnriching, setIsBatchEnriching] = useState(false);
     const [enrichProgress, setEnrichProgress] = useState({ current: 0, total: 0 });
 
+    // --- AI SPECIFICATION STATES ---
+    const [targetDesc, setTargetDesc] = useState('solar company');
+    const [targetMarket, setTargetMarket] = useState('Commercial/B2B');
+
     // --- PAGINATION STATES ---
     const [currentPage, setCurrentPage] = useState(1);
     const leadsPerPage = 100;
 
-    // Reset to page 1 if the total number of leads changes significantly (like during a new search)
     useEffect(() => {
         setCurrentPage(1);
     }, [leads.length]);
 
-    // Calculate Pagination Math
     const indexOfLastLead = currentPage * leadsPerPage;
     const indexOfFirstLead = indexOfLastLead - leadsPerPage;
     const currentLeads = leads.slice(indexOfFirstLead, indexOfLastLead);
@@ -34,14 +36,16 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
         if (currentPage > 1) setCurrentPage(prev => prev - 1);
     };
 
-    // Single Lead Enrichment
     const handleEnrich = async (leadId: string) => {
         setEnrichingIds(prev => new Set(prev).add(leadId));
         try {
             const res = await fetch('/api/enrich', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ leadIds: [leadId] }),
+                body: JSON.stringify({
+                    leadIds: [leadId],
+                    criteria: { description: targetDesc, target: targetMarket }
+                }),
             });
             if (!res.ok) throw new Error('Enrichment failed');
             if (refetch) refetch();
@@ -56,7 +60,6 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
         }
     };
 
-    // Client-Side Orchestrator for Safe Batch Enrichment
     const handleBatchEnrich = async () => {
         const pendingLeads = leads.filter(l => l.status === 'pending');
         if (pendingLeads.length === 0) return alert('No pending leads to enrich.');
@@ -67,7 +70,6 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
         setIsBatchEnriching(true);
         setEnrichProgress({ current: 0, total: leadsToProcess.length });
 
-        // Process in chunks of 5 to prevent Vercel/Next.js timeouts
         const CHUNK_SIZE = 5;
 
         for (let i = 0; i < leadsToProcess.length; i += CHUNK_SIZE) {
@@ -80,7 +82,10 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                 await fetch('/api/enrich', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ leadIds: chunkIds }),
+                    body: JSON.stringify({
+                        leadIds: chunkIds,
+                        criteria: { description: targetDesc, target: targetMarket }
+                    }),
                 });
 
                 if (refetch) refetch();
@@ -131,30 +136,59 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
 
     return (
         <div className="relative h-full flex flex-col w-full">
-            {/* Top Bar for Batch Actions */}
             {!loading && leads.length > 0 && (
                 <div className="flex flex-col bg-white border-b border-neutral-200 shrink-0">
-                    <div className="flex items-center justify-between p-4">
-                        <div className="flex items-center gap-2">
-                            <select
-                                value={batchSize}
-                                onChange={(e) => setBatchSize(e.target.value)}
-                                className="bg-neutral-50 border border-neutral-200 text-sm rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                                disabled={isBatchEnriching}
-                            >
-                                <option value="5">Enrich 5 Leads</option>
-                                <option value="20">Enrich 20 Leads</option>
-                                <option value="100">Enrich 100 Leads</option>
-                                <option value="all">Enrich All Leads</option>
-                            </select>
-                            <button
-                                onClick={handleBatchEnrich}
-                                disabled={isBatchEnriching || leads.filter(l => l.status === 'pending').length === 0}
-                                className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                {isBatchEnriching ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                                {isBatchEnriching ? 'Running AI...' : 'Run AI'}
-                            </button>
+                    <div className="p-4 flex flex-col gap-3">
+
+                        {/* THE NEW SYSTEMATIZED SPECIFICATION UI */}
+                        <div className="flex flex-col xl:flex-row xl:items-center gap-3 p-3 bg-indigo-50/50 border border-indigo-100 rounded-lg">
+                            <div className="flex items-center gap-2">
+                                <Sparkles size={16} className="text-indigo-500 shrink-0" />
+                                <span className="text-xs font-bold text-indigo-900 uppercase tracking-wider whitespace-nowrap">AI Filter:</span>
+                            </div>
+                            <div className="flex-1 flex gap-2">
+                                <input
+                                    type="text"
+                                    value={targetDesc}
+                                    onChange={(e) => setTargetDesc(e.target.value)}
+                                    placeholder='e.g., "solar company"'
+                                    className="flex-1 min-w-[120px] bg-white border border-indigo-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                />
+                                <select
+                                    value={targetMarket}
+                                    onChange={(e) => setTargetMarket(e.target.value)}
+                                    className="bg-white border border-indigo-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shrink-0"
+                                >
+                                    <option value="Commercial/B2B">Commercial / B2B</option>
+                                    <option value="Residential/B2C">Residential</option>
+                                    <option value="Either/Both">Any Market</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* Existing Batch Controls */}
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <select
+                                    value={batchSize}
+                                    onChange={(e) => setBatchSize(e.target.value)}
+                                    className="bg-neutral-50 border border-neutral-200 text-sm rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                    disabled={isBatchEnriching}
+                                >
+                                    <option value="5">Enrich 5 Leads</option>
+                                    <option value="20">Enrich 20 Leads</option>
+                                    <option value="100">Enrich 100 Leads</option>
+                                    <option value="all">Enrich All Leads</option>
+                                </select>
+                                <button
+                                    onClick={handleBatchEnrich}
+                                    disabled={isBatchEnriching || leads.filter(l => l.status === 'pending').length === 0}
+                                    className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {isBatchEnriching ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                                    {isBatchEnriching ? 'Running AI...' : 'Run AI'}
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -180,7 +214,7 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                 </div>
             )}
 
-            {/* List of Leads (Sliced by Pagination) */}
+            {/* List of Leads */}
             <div className="flex-1 overflow-y-auto w-full flex flex-col shadow-inner bg-white">
                 {currentLeads.map((lead) => (
                     <div
@@ -218,7 +252,7 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                 ))}
             </div>
 
-            {/* NEW: Pagination Controls Bar */}
+            {/* Pagination Controls Bar */}
             {!loading && leads.length > leadsPerPage && (
                 <div className="bg-white border-t border-neutral-200 p-3 flex items-center justify-between shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-10">
                     <button
@@ -293,7 +327,7 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                                 {selectedLead.status === 'researching' || enrichingIds.has(selectedLead.id) ? (
                                     <div className="flex bg-blue-50 text-blue-700 p-4 rounded-lg items-center gap-3 text-sm font-medium">
                                         <Loader2 size={18} className="animate-spin shrink-0" />
-                                        Gemini is currently finding the decision makers, socials, and contact info...
+                                        Gemini is currently categorizing the business and finding contact info...
                                     </div>
                                 ) : selectedLead.status === 'pending' ? (
                                     <div className="flex flex-col items-center justify-center p-6 bg-neutral-50 rounded-lg text-center gap-3 border border-neutral-100">
@@ -302,7 +336,7 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                                         </div>
                                         <div>
                                             <h4 className="font-semibold text-neutral-900">Unlock Hidden Details</h4>
-                                            <p className="text-sm text-neutral-500 mt-1 max-w-xs mx-auto">Deploy Gemini AI to search for decision makers, emails, and social profiles.</p>
+                                            <p className="text-sm text-neutral-500 mt-1 max-w-xs mx-auto">Deploy Gemini AI to qualify the market and find the decision makers.</p>
                                         </div>
                                         <button
                                             onClick={() => handleEnrich(selectedLead.id)}
