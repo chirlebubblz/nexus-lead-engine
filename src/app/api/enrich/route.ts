@@ -5,15 +5,13 @@ import { updateLeadStatus } from '@/lib/leads';
 import { processEnrichment } from '@/lib/enrichment';
 import { Lead } from '@/types';
 
-// Set concurrency limit for enrichment processing
-const limit = pLimit(5); // Process up to 5 leads concurrently
+const limit = pLimit(5);
 
 export async function POST(request: Request) {
     try {
         const body = await request.json();
-        const { leadIds } = body;
+        const { leadIds, criteria } = body;
 
-        // Support both single leadId (legacy) and leadIds array
         const idsToProcess: string[] = leadIds
             ? Array.isArray(leadIds) ? leadIds : [leadIds]
             : body.leadId ? [body.leadId] : [];
@@ -24,7 +22,6 @@ export async function POST(request: Request) {
 
         const serviceClient = getServiceSupabase();
 
-        // Fetch the leads that need processing
         const { data: leads, error } = await serviceClient
             .from('leads')
             .select('*')
@@ -35,22 +32,18 @@ export async function POST(request: Request) {
             return NextResponse.json({ message: 'No pending leads found to process.', error });
         }
 
-        // Process leads concurrently using p-limit
         const enrichmentPromises = leads.map((lead: Lead) =>
             limit(async () => {
                 try {
-                    // Update status to 'researching'
                     await updateLeadStatus(lead.id, 'researching');
 
-                    // Trigger enrichment pipeline (Google Search, Cheerio, Gemini)
-                    const enrichmentData = await processEnrichment(lead);
+                    // Pass the dynamic UI criteria to Gemini
+                    const enrichmentData = await processEnrichment(lead, criteria);
 
-                    // Update status to 'verified' with new data
                     await updateLeadStatus(lead.id, 'verified', enrichmentData);
                     console.log(`Successfully enriched lead: ${lead.id}`);
                 } catch (error) {
                     console.error(`Failed to enrich lead ${lead.id}:`, error);
-                    // Mark as failed if an unhandled error occurs
                     await updateLeadStatus(lead.id, 'failed', {
                         enrichment_summary: 'Processing failed due to internal error.'
                     });
@@ -58,7 +51,6 @@ export async function POST(request: Request) {
             })
         );
 
-        // Wait for all enrichments to complete
         await Promise.allSettled(enrichmentPromises);
 
         return NextResponse.json({
