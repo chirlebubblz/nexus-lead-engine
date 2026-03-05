@@ -4,10 +4,11 @@ import { useState, useEffect, useRef } from 'react';
 import { useLeads } from '@/hooks/useLeads';
 import MapWrapper from '@/components/MapWrapper';
 import LeadList from '@/components/LeadList';
-import { Search, MapPin, Grid3X3, XCircle, Loader2, Map as MapIcon, Layers, Globe } from 'lucide-react';
+import { Search, MapPin, Grid3X3, XCircle, Loader2, Map as MapIcon, Layers, Globe, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import Papa from 'papaparse';
 import { LOCATION_DATA } from '@/data/locations';
+import Link from 'next/link';
 
 export default function Dashboard() {
     const { leads, loading, refetch } = useLeads();
@@ -234,6 +235,7 @@ export default function Dashboard() {
         setIsHopping(false);
         isSweepingRef.current = false;
     };
+
     const handleExportCSV = () => {
         if (!leads || leads.length === 0) {
             toast.info("No leads available to export.");
@@ -283,7 +285,13 @@ export default function Dashboard() {
             <div className="w-1/3 min-w-[420px] h-full flex flex-col bg-white border-r border-neutral-200 z-10 shadow-xl">
 
                 <div className="p-6 border-b border-neutral-100 bg-white shrink-0">
-                    <h1 className="text-2xl font-bold text-neutral-900 tracking-tight">Nexus Lead Engine</h1>
+                    <div className="flex items-center justify-between">
+                        <h1 className="text-2xl font-bold text-neutral-900 tracking-tight">Nexus Lead Engine</h1>
+                        <Link href="/login" className="flex items-center gap-1 text-xs font-medium text-neutral-400 hover:text-blue-600 transition-colors" title="Admin Login">
+                            <Lock size={14} />
+                            Admin
+                        </Link>
+                    </div>
 
                     <div className="flex bg-neutral-100 p-1 rounded-lg mt-4 mb-4">
                         <button
@@ -310,6 +318,17 @@ export default function Dashboard() {
                             disabled={isSearching || isHopping}
                             className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium disabled:opacity-60"
                         />
+                    </div>
+
+                    {/* NEW EXPORT BUTTON INSTALLED HERE */}
+                    <div className="flex justify-end mb-4">
+                        <button
+                            onClick={handleExportCSV}
+                            disabled={!leads || leads.length === 0}
+                            className="text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold px-3 py-1.5 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                        >
+                            ↓ Export {leads?.length || 0} Leads to CSV
+                        </button>
                     </div>
 
                     {/* TAB: LOCAL SEARCH */}
@@ -442,7 +461,7 @@ export default function Dashboard() {
                     )}
                 </div>
 
-                <div className="flex-1 overflow-auto bg-neutral-50">
+                <div className="flex-1 overflow-auto bg-neutral-50 flex flex-col">
                     <LeadList leads={leads} loading={loading} isSearching={isSearching || isHopping} refetch={refetch} />
                 </div>
             </div>

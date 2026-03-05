@@ -1,19 +1,40 @@
 'use client';
 
 import { Lead } from '@/types';
-import { Loader2, CheckCircle2, XCircle, Clock, MapPin, Globe, Phone, Mail, Linkedin, Sparkles, Download } from 'lucide-react';
-import { useState } from 'react';
-import { motion } from 'framer-motion';
+import { Loader2, CheckCircle2, XCircle, Clock, MapPin, Globe, Phone, Mail, Linkedin, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useState, useEffect } from 'react';
 
 export default function LeadList({ leads, loading, isSearching, refetch }: { leads: Lead[], loading: boolean, isSearching: boolean, refetch?: () => void }) {
     const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
     const [enrichingIds, setEnrichingIds] = useState<Set<string>>(new Set());
     const [batchSize, setBatchSize] = useState<string>('5');
     const [isBatchEnriching, setIsBatchEnriching] = useState(false);
-
-    // New Progress State for Enrichment
     const [enrichProgress, setEnrichProgress] = useState({ current: 0, total: 0 });
 
+    // --- PAGINATION STATES ---
+    const [currentPage, setCurrentPage] = useState(1);
+    const leadsPerPage = 100;
+
+    // Reset to page 1 if the total number of leads changes significantly (like during a new search)
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [leads.length]);
+
+    // Calculate Pagination Math
+    const indexOfLastLead = currentPage * leadsPerPage;
+    const indexOfFirstLead = indexOfLastLead - leadsPerPage;
+    const currentLeads = leads.slice(indexOfFirstLead, indexOfLastLead);
+    const totalPages = Math.ceil(leads.length / leadsPerPage);
+
+    const handleNextPage = () => {
+        if (currentPage < totalPages) setCurrentPage(prev => prev + 1);
+    };
+
+    const handlePrevPage = () => {
+        if (currentPage > 1) setCurrentPage(prev => prev - 1);
+    };
+
+    // Single Lead Enrichment
     const handleEnrich = async (leadId: string) => {
         setEnrichingIds(prev => new Set(prev).add(leadId));
         try {
@@ -26,7 +47,6 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
             if (refetch) refetch();
         } catch (error) {
             console.error('Failed to trigger enrichment:', error);
-            alert('Failed to trigger enrichment. Check console.');
         } finally {
             setEnrichingIds(prev => {
                 const newSet = new Set(prev);
@@ -63,78 +83,29 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                     body: JSON.stringify({ leadIds: chunkIds }),
                 });
 
-                // Update UI after every chunk finishes
                 if (refetch) refetch();
-
             } catch (error) {
                 console.error('Batch chunk failed:', error);
             }
 
-            // Update Progress Bar
             setEnrichProgress({ current: Math.min(i + CHUNK_SIZE, leadsToProcess.length), total: leadsToProcess.length });
 
-            // Clear chunk from loading state
             setEnrichingIds(prev => {
                 const newSet = new Set(prev);
                 chunkIds.forEach(id => newSet.delete(id));
                 return newSet;
             });
         }
-
         setIsBatchEnriching(false);
     };
 
-    const handleExportCSV = () => {
-        if (leads.length === 0) return;
-
-        const headers = [
-            'Business Name', 'Address', 'Phone', 'Website', 'Status',
-            'Decision Maker Name', 'Decision Maker Role', 'Contact Email',
-            'LinkedIn', 'Facebook', 'Instagram', 'Twitter', 'YouTube', 'TikTok', 'Google Maps', 'Yelp', 'Enrichment Summary'
-        ];
-
-        const rows = leads.map(lead => {
-            const escapeCsv = (str: string | null | undefined) => {
-                if (!str) return '""';
-                const cleanStr = String(str).replace(/\r?\n|\r/g, ' ');
-                return `"${cleanStr.replace(/"/g, '""')}"`;
-            };
-
-            const getSocial = (network: string) => {
-                if (!lead.social_profiles) return '';
-                const profiles = lead.social_profiles as Record<string, string>;
-                return profiles[network] || profiles[network.toLowerCase()] || '';
-            };
-
-            return [
-                escapeCsv(lead.business_name), escapeCsv(lead.address), escapeCsv(lead.phone),
-                escapeCsv(lead.website), escapeCsv(lead.status), escapeCsv(lead.decision_maker_name),
-                escapeCsv(lead.decision_maker_role), escapeCsv(lead.contact_email), escapeCsv(getSocial('linkedin')),
-                escapeCsv(getSocial('facebook')), escapeCsv(getSocial('instagram')), escapeCsv(getSocial('twitter') || getSocial('x')),
-                escapeCsv(getSocial('youtube')), escapeCsv(getSocial('tiktok')), escapeCsv(getSocial('google')),
-                escapeCsv(getSocial('yelp')), escapeCsv(lead.enrichment_summary)
-            ].join(',');
-        });
-
-        const csvContent = headers.join(',') + "\n" + rows.join('\n');
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement("a");
-        const url = URL.createObjectURL(blob);
-        link.setAttribute("href", url);
-        link.setAttribute("download", "nexus_leads.csv");
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    };
-
     if (loading && leads.length === 0) {
-        return <div className="p-8 text-center text-neutral-400 animate-pulse">Loading leads database...</div>;
+        return <div className="p-8 text-center text-neutral-400 animate-pulse flex-1">Loading leads database...</div>;
     }
 
     if (!loading && leads.length === 0 && !isSearching) {
         return (
-            <div className="h-full flex flex-col items-center justify-center p-8 text-neutral-400">
+            <div className="h-full flex flex-col items-center justify-center p-8 text-neutral-400 flex-1">
                 <MapPin size={48} className="mb-4 text-neutral-200" />
                 <p className="text-center font-medium text-neutral-500">No leads found yet.</p>
                 <p className="text-center text-sm mt-1">Move the map and click "Search This Area" to begin.</p>
@@ -151,7 +122,7 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
         }
     };
 
-    const statusColors = {
+    const statusColors: Record<string, string> = {
         verified: 'bg-emerald-50 text-emerald-700 border-emerald-200',
         researching: 'bg-blue-50 text-blue-700 border-blue-200',
         failed: 'bg-red-50 text-red-700 border-red-200',
@@ -159,7 +130,7 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
     };
 
     return (
-        <div className="relative h-full flex flex-col">
+        <div className="relative h-full flex flex-col w-full">
             {/* Top Bar for Batch Actions */}
             {!loading && leads.length > 0 && (
                 <div className="flex flex-col bg-white border-b border-neutral-200 shrink-0">
@@ -171,10 +142,10 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                                 className="bg-neutral-50 border border-neutral-200 text-sm rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                                 disabled={isBatchEnriching}
                             >
-                                <option value="5">5 Leads</option>
-                                <option value="10">10 Leads</option>
-                                <option value="100">100 Leads</option>
-                                <option value="all">All Leads</option>
+                                <option value="5">Enrich 5 Leads</option>
+                                <option value="20">Enrich 20 Leads</option>
+                                <option value="100">Enrich 100 Leads</option>
+                                <option value="all">Enrich All Leads</option>
                             </select>
                             <button
                                 onClick={handleBatchEnrich}
@@ -182,19 +153,12 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                                 className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {isBatchEnriching ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                                {isBatchEnriching ? 'Enriching...' : 'Enrich'}
+                                {isBatchEnriching ? 'Running AI...' : 'Run AI'}
                             </button>
                         </div>
-                        <button
-                            onClick={handleExportCSV}
-                            className="flex items-center gap-1.5 bg-white hover:bg-neutral-50 border border-neutral-200 text-neutral-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
-                        >
-                            <Download size={14} />
-                            Export CSV
-                        </button>
                     </div>
 
-                    {/* NEW: AI Enrichment Progress Bar */}
+                    {/* AI Enrichment Progress Bar */}
                     {isBatchEnriching && (
                         <div className="px-4 pb-4 animate-in fade-in slide-in-from-top-2">
                             <div className="flex justify-between items-center mb-1.5">
@@ -216,15 +180,13 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                 </div>
             )}
 
-            <div className="flex-1 overflow-y-auto w-full flex flex-col shadow-inner">
-                {leads.map((lead, index) => (
-                    <motion.div
+            {/* List of Leads (Sliced by Pagination) */}
+            <div className="flex-1 overflow-y-auto w-full flex flex-col shadow-inner bg-white">
+                {currentLeads.map((lead) => (
+                    <div
                         key={lead.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: index * 0.03, duration: 0.2 }}
                         onClick={() => setSelectedLead(lead)}
-                        className="group px-6 py-4 border-b border-neutral-200/60 bg-white hover:bg-neutral-50 cursor-pointer transition-colors"
+                        className="group px-6 py-4 border-b border-neutral-200/60 hover:bg-neutral-50 cursor-pointer transition-colors"
                     >
                         <div className="flex items-start justify-between">
                             <div className="w-[80%]">
@@ -252,19 +214,36 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                                 )}
                             </div>
                         )}
-                    </motion.div>
+                    </div>
                 ))}
             </div>
 
+            {/* NEW: Pagination Controls Bar */}
+            {!loading && leads.length > leadsPerPage && (
+                <div className="bg-white border-t border-neutral-200 p-3 flex items-center justify-between shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-10">
+                    <button
+                        onClick={handlePrevPage}
+                        disabled={currentPage === 1}
+                        className="p-1.5 rounded bg-neutral-100 text-neutral-600 hover:bg-neutral-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                        <ChevronLeft size={18} />
+                    </button>
+                    <span className="text-xs font-semibold text-neutral-600">
+                        Page {currentPage} of {totalPages} <span className="text-neutral-400 font-normal ml-1">({leads.length} total)</span>
+                    </span>
+                    <button
+                        onClick={handleNextPage}
+                        disabled={currentPage === totalPages}
+                        className="p-1.5 rounded bg-neutral-100 text-neutral-600 hover:bg-neutral-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                        <ChevronRight size={18} />
+                    </button>
+                </div>
+            )}
+
             {/* Slide-over Details Panel */}
             {selectedLead && (
-                <motion.div
-                    initial={{ x: '100%', opacity: 0.5 }}
-                    animate={{ x: 0, opacity: 1 }}
-                    exit={{ x: '100%', opacity: 0 }}
-                    transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                    className="absolute inset-0 bg-white z-50 flex flex-col shadow-[-10px_0_30px_rgba(0,0,0,0.05)]"
-                >
+                <div className="absolute inset-0 bg-white z-50 flex flex-col shadow-[-10px_0_30px_rgba(0,0,0,0.05)] animate-in slide-in-from-right-full">
                     <div className="px-6 py-5 border-b border-neutral-100 bg-neutral-50/50 flex items-center justify-between shadow-sm">
                         <div className="flex items-center gap-3">
                             <div className={`p-2 rounded-full bg-white border shadow-sm ${statusColors[selectedLead.status]}`}>
@@ -323,7 +302,7 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                                         </div>
                                         <div>
                                             <h4 className="font-semibold text-neutral-900">Unlock Hidden Details</h4>
-                                            <p className="text-sm text-neutral-500 mt-1 max-w-xs mx-auto">Click below to deploy Gemini AI to search for decision makers, emails, and social profiles for this business.</p>
+                                            <p className="text-sm text-neutral-500 mt-1 max-w-xs mx-auto">Deploy Gemini AI to search for decision makers, emails, and social profiles.</p>
                                         </div>
                                         <button
                                             onClick={() => handleEnrich(selectedLead.id)}
@@ -395,7 +374,7 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                             </div>
                         </div>
                     </div>
-                </motion.div>
+                </div>
             )}
         </div>
     );
