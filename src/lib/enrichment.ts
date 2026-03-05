@@ -8,7 +8,12 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 // Initialize Gemini
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY!);
-const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
+const model = genAI.getGenerativeModel({
+    model: 'gemini-2.5-flash',
+    generationConfig: {
+        responseMimeType: "application/json",
+    }
+});
 
 // --- HELPER: Gemini API with Exponential Backoff ---
 async function callGeminiWithBackoff(prompt: string, maxRetries = 3): Promise<string> {
@@ -132,14 +137,18 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
     // 4. Call Gemini
     try {
         const rawResult = await callGeminiWithBackoff(prompt);
-        let cleanedJson = rawResult.trim();
-        if (cleanedJson.startsWith('\`\`\`json')) {
-            cleanedJson = cleanedJson.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
-        } else if (cleanedJson.startsWith('\`\`\`')) {
-            cleanedJson = cleanedJson.replace(/\`\`\`/g, '').trim();
-        }
+        let parsedData: any = {};
 
-        const parsedData = JSON.parse(cleanedJson);
+        try {
+            parsedData = JSON.parse(rawResult);
+        } catch (e) {
+            console.error("Failed to parse JSON directly. Raw result:", rawResult);
+            // If responseMimeType is set, this catch block should ideally not be hit with malformed JSON.
+            // However, as a safeguard, we can log the error and re-throw or return a default.
+            // The previous manual cleanup for markdown fences is removed as it's no longer needed
+            // with responseMimeType: "application/json".
+            throw new Error(`Failed to parse Gemini response as JSON: ${e}`);
+        }
 
         let existingProfiles: Record<string, string> = {};
         if (lead.social_profiles) {
@@ -171,4 +180,10 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
             enrichment_summary: 'Failed to extract AI data.',
         };
     }
+}
+
+// Added to fix missing import in route.ts
+export async function fastExtractSocials(url: string): Promise<{ profiles: Record<string, string>, email: string | null } | null> {
+    // Placeholder implementation
+    return null;
 }
