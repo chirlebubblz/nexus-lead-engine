@@ -1,29 +1,23 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { Lead } from '@/types';
 
+// Environment variables
 const GOOGLE_SEARCH_API_KEY = process.env.GOOGLE_SEARCH_API_KEY;
 const GOOGLE_SEARCH_CX = process.env.GOOGLE_SEARCH_CX;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
+// Initialize Gemini
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY!);
 const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
 
-// Helper for exponential backoff on Gemini API calls
+// --- HELPER: Gemini API with Exponential Backoff ---
 async function callGeminiWithBackoff(prompt: string, maxRetries = 3): Promise<string> {
     let attempt = 0;
     let delay = 1000;
 
-    // Use a model config that enforces JSON output
-    const jsonModel = genAI.getGenerativeModel({
-        model: 'gemini-2.5-flash',
-        generationConfig: {
-            responseMimeType: "application/json",
-        }
-    });
-
     while (attempt < maxRetries) {
         try {
-            const result = await jsonModel.generateContent(prompt);
+            const result = await model.generateContent(prompt);
             return result.response.text();
         } catch (error: any) {
             if (error?.status === 429 || error?.status === 503) {
@@ -39,6 +33,7 @@ async function callGeminiWithBackoff(prompt: string, maxRetries = 3): Promise<st
     throw new Error('Gemini API failed after max retries due to rate limiting.');
 }
 
+// --- HELPER: Google Custom Search Fallback ---
 async function searchGoogle(query: string) {
     if (!GOOGLE_SEARCH_API_KEY || !GOOGLE_SEARCH_CX) {
         console.warn('Google Custom Search keys not configured.');
@@ -55,12 +50,17 @@ async function searchGoogle(query: string) {
     }
 }
 
-// OPTION 2: WEB SCRAPING API (Jina AI)
+// --- HELPER: Jina AI Web Scraper ---
 async function scrapeWebsiteWithAPI(url: string): Promise<string> {
     try {
         console.log(`Sending ${url} to Jina AI Reader API...`);
         // Jina AI renders the JavaScript and returns clean Markdown containing all links and text
-        const response = await fetch(`https://r.jina.ai/${url}`);
+        const response = await fetch(`https://r.jina.ai/${url}`, {
+            headers: {
+                'Accept': 'text/plain',
+                'X-Return-Format': 'markdown'
+            }
+        });
 
         if (!response.ok) return '';
 
@@ -73,12 +73,13 @@ async function scrapeWebsiteWithAPI(url: string): Promise<string> {
     }
 }
 
+// --- MAIN ENGINE: Process Enrichment ---
 export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
     let websiteUrl = lead.website;
     let searchContext = '';
     let scrapedText = '';
 
-    // 1. Scrape the official website using the API
+    // 1. Scrape the official website using the Jina API
     if (websiteUrl) {
         scrapedText = await scrapeWebsiteWithAPI(websiteUrl as string);
     }
@@ -88,6 +89,7 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
 
     if (searchResults.length > 0) {
         for (const item of searchResults) {
+            // If we don't have a website yet, or we want to double check the main site
             if (!websiteUrl && !item.link.includes('linkedin.com') && !item.link.includes('facebook.com') && !item.link.includes('instagram.com') && !item.link.includes('google.com')) {
                 websiteUrl = item.link;
                 scrapedText = await scrapeWebsiteWithAPI(websiteUrl as string);
@@ -96,7 +98,7 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
         searchContext = searchResults.map((item: any) => `${item.title}: ${item.snippet} (${item.link})`).join('\n');
     }
 
-    // 3. Prepare Gemini Prompt (UPGRADED WITH CLASSIFICATION)
+    // 3. Prepare Gemini Prompt (UPGRADED WITH CLASSIFICATION & SOCIAL HUNTER)
     const prompt = `
     You are an expert lead generation data analyst. Your job is to extract decision-maker contact info, find social profiles, and flag "bad" leads.
     
@@ -122,7 +124,7 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
       "decision_maker_name": "Name of CEO/Owner/Manager if found, else null",
       "decision_maker_role": "Role (e.g., Owner, CEO) if found, else null",
       "contact_email": "Best contact email if found, else null",
-      "social_profiles": { "linkedin": "url", "facebook": "url", "instagram": "url", "twitter": "url", "youtube": "url", "tiktok": "url", "yelp": "url" } (ONLY include platforms where a URL was actually found, omit the others. If none found, output null),
+      "social_profiles": { "linkedin": "url", "facebook": "url", "instagram": "url", "twitter": "url", "youtube": "url", "tiktok": "url", "yelp": "url" } or null,
       "enrichment_summary": "A 1-2 sentence summary of what this business does and who the key contact is. If lead_quality is bad, explain why."
     }
   `;
@@ -130,21 +132,14 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
     // 4. Call Gemini
     try {
         const rawResult = await callGeminiWithBackoff(prompt);
-        let parsedData: any = {};
-
-        try {
-            parsedData = JSON.parse(rawResult);
-        } catch (e) {
-            console.error("Failed to parse JSON directly. Raw result:", rawResult);
-            // Fallback just in case string manipulation is still needed.
-            let cleanedJson = rawResult.trim();
-            if (cleanedJson.startsWith('```json')) {
-                cleanedJson = cleanedJson.replace(/```json/g, '').replace(/```/g, '').trim();
-            } else if (cleanedJson.startsWith('```')) {
-                cleanedJson = cleanedJson.replace(/```/g, '').trim();
-            }
-            parsedData = JSON.parse(cleanedJson);
+        let cleanedJson = rawResult.trim();
+        if (cleanedJson.startsWith('\`\`\`json')) {
+            cleanedJson = cleanedJson.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
+        } else if (cleanedJson.startsWith('\`\`\`')) {
+            cleanedJson = cleanedJson.replace(/\`\`\`/g, '').trim();
         }
+
+        const parsedData = JSON.parse(cleanedJson);
 
         let existingProfiles: Record<string, string> = {};
         if (lead.social_profiles) {
@@ -176,10 +171,4 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
             enrichment_summary: 'Failed to extract AI data.',
         };
     }
-}
-
-// Added to fix missing import in route.ts
-export async function fastExtractSocials(url: string): Promise<{ profiles: Record<string, string>, email: string | null } | null> {
-    // Placeholder implementation
-    return null;
 }
