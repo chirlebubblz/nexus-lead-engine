@@ -116,12 +116,15 @@ export default function Dashboard() {
 
         if (!isBulkMode) {
             try {
-                await fetch('/api/search', {
+                const res = await fetch('/api/search', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ query, latitude: centerLat, longitude: centerLng, radius })
                 });
+                if (!res.ok) throw new Error((await res.json()).error || 'Search failed');
                 await refetch();
+            } catch (error: any) {
+                alert(error.message || 'Search failed. Please try again.');
             } finally {
                 setIsSearching(false);
                 isSweepingRef.current = false;
@@ -144,13 +147,19 @@ export default function Dashboard() {
                 setSweepProgress({ current: completed, total: totalSearches });
 
                 try {
-                    await fetch('/api/search', {
+                    const res = await fetch('/api/search', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ query, latitude: gridLat, longitude: gridLng, radius: 2500, clearExisting: completed === 1 })
                     });
+                    if (!res.ok) throw new Error((await res.json()).error || 'Search failed');
                     await refetch();
-                } catch (error) { }
+                } catch (error: any) {
+                    alert(error.message);
+                    setIsSearching(false);
+                    isSweepingRef.current = false;
+                    return;
+                }
 
                 if (completed < totalSearches) await new Promise(resolve => setTimeout(resolve, 2000));
             }
@@ -196,14 +205,20 @@ export default function Dashboard() {
                     });
 
                     try {
-                        await fetch('/api/search', {
+                        const res = await fetch('/api/search', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ query, latitude: gridLat, longitude: gridLng, radius: 2500, clearExisting: isFirst })
                         });
+                        if (!res.ok) throw new Error((await res.json()).error || 'Search failed');
                         isFirst = false;
                         await refetch();
-                    } catch (error) { }
+                    } catch (error: any) {
+                        alert(error.message);
+                        setIsHopping(false);
+                        isSweepingRef.current = false;
+                        return;
+                    }
 
                     await new Promise(resolve => setTimeout(resolve, 2000));
                 }
