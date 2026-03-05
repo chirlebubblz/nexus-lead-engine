@@ -13,9 +13,17 @@ async function callGeminiWithBackoff(prompt: string, maxRetries = 3): Promise<st
     let attempt = 0;
     let delay = 1000;
 
+    // Use a model config that enforces JSON output
+    const jsonModel = genAI.getGenerativeModel({
+        model: 'gemini-2.5-flash',
+        generationConfig: {
+            responseMimeType: "application/json",
+        }
+    });
+
     while (attempt < maxRetries) {
         try {
-            const result = await model.generateContent(prompt);
+            const result = await jsonModel.generateContent(prompt);
             return result.response.text();
         } catch (error: any) {
             if (error?.status === 429 || error?.status === 503) {
@@ -122,14 +130,21 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
     // 4. Call Gemini
     try {
         const rawResult = await callGeminiWithBackoff(prompt);
-        let cleanedJson = rawResult.trim();
-        if (cleanedJson.startsWith('```json')) {
-            cleanedJson = cleanedJson.replace(/```json/g, '').replace(/```/g, '').trim();
-        } else if (cleanedJson.startsWith('```')) {
-            cleanedJson = cleanedJson.replace(/```/g, '').trim();
-        }
+        let parsedData: any = {};
 
-        const parsedData = JSON.parse(cleanedJson);
+        try {
+            parsedData = JSON.parse(rawResult);
+        } catch (e) {
+            console.error("Failed to parse JSON directly. Raw result:", rawResult);
+            // Fallback just in case string manipulation is still needed.
+            let cleanedJson = rawResult.trim();
+            if (cleanedJson.startsWith('```json')) {
+                cleanedJson = cleanedJson.replace(/```json/g, '').replace(/```/g, '').trim();
+            } else if (cleanedJson.startsWith('```')) {
+                cleanedJson = cleanedJson.replace(/```/g, '').trim();
+            }
+            parsedData = JSON.parse(cleanedJson);
+        }
 
         let existingProfiles: Record<string, string> = {};
         if (lead.social_profiles) {
