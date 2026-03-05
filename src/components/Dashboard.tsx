@@ -5,6 +5,8 @@ import { useLeads } from '@/hooks/useLeads';
 import MapWrapper from '@/components/MapWrapper';
 import LeadList from '@/components/LeadList';
 import { Search, MapPin, Grid3X3, XCircle, Loader2, Map as MapIcon, Layers, Globe } from 'lucide-react';
+import { toast } from 'sonner';
+import Papa from 'papaparse';
 import { LOCATION_DATA } from '@/data/locations';
 
 export default function Dashboard() {
@@ -124,7 +126,7 @@ export default function Dashboard() {
                 if (!res.ok) throw new Error((await res.json()).error || 'Search failed');
                 await refetch();
             } catch (error: any) {
-                alert(error.message || 'Search failed. Please try again.');
+                toast.error(error.message || 'Search failed. Please try again.');
             } finally {
                 setIsSearching(false);
                 isSweepingRef.current = false;
@@ -155,7 +157,7 @@ export default function Dashboard() {
                     if (!res.ok) throw new Error((await res.json()).error || 'Search failed');
                     await refetch();
                 } catch (error: any) {
-                    alert(error.message);
+                    toast.error(error.message);
                     setIsSearching(false);
                     isSweepingRef.current = false;
                     return;
@@ -169,8 +171,8 @@ export default function Dashboard() {
     };
 
     const handleCityHopper = async () => {
-        if (!query) return alert('Please enter a search query first');
-        if (selectedCities.length === 0) return alert('Please select at least one city.');
+        if (!query) return toast.warning('Please enter a search query first');
+        if (selectedCities.length === 0) return toast.warning('Please select at least one city.');
 
         setIsHopping(true);
         isSweepingRef.current = true;
@@ -214,7 +216,7 @@ export default function Dashboard() {
                         isFirst = false;
                         await refetch();
                     } catch (error: any) {
-                        alert(error.message);
+                        toast.error(error.message);
                         setIsHopping(false);
                         isSweepingRef.current = false;
                         return;
@@ -231,6 +233,48 @@ export default function Dashboard() {
 
         setIsHopping(false);
         isSweepingRef.current = false;
+    };
+    const handleExportCSV = () => {
+        if (!leads || leads.length === 0) {
+            toast.info("No leads available to export.");
+            return;
+        }
+
+        const formattedData = leads.map(lead => {
+            const profiles: Record<string, string> = typeof lead.social_profiles === 'string'
+                ? JSON.parse(lead.social_profiles || '{}')
+                : (lead.social_profiles || {});
+
+            return {
+                "Business Name": lead.business_name,
+                "Status": lead.status,
+                "Decision Maker Name": lead.decision_maker_name || '',
+                "Decision Maker Role": lead.decision_maker_role || '',
+                "Email": lead.contact_email || '',
+                "Phone": lead.phone || '',
+                "Website": lead.website || '',
+                "Address": lead.address || '',
+                "LinkedIn": profiles.linkedin || '',
+                "Facebook": profiles.facebook || '',
+                "Instagram": profiles.instagram || '',
+                "Summary": lead.enrichment_summary || '',
+                "Date Found": new Date(lead.created_at).toLocaleDateString()
+            };
+        });
+
+        const csv = Papa.unparse(formattedData);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+
+        link.setAttribute('href', url);
+        link.setAttribute('download', `nexus_leads_${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        toast.success(`Exported ${formattedData.length} leads to CSV!`);
     };
 
     return (

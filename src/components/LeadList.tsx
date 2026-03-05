@@ -3,6 +3,7 @@
 import { Lead } from '@/types';
 import { Loader2, CheckCircle2, XCircle, Clock, MapPin, Globe, Phone, Mail, Linkedin, Sparkles, Download } from 'lucide-react';
 import { useState } from 'react';
+import { motion } from 'framer-motion';
 
 export default function LeadList({ leads, loading, isSearching, refetch }: { leads: Lead[], loading: boolean, isSearching: boolean, refetch?: () => void }) {
     const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -216,9 +217,12 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
             )}
 
             <div className="flex-1 overflow-y-auto w-full flex flex-col shadow-inner">
-                {leads.map((lead) => (
-                    <div
+                {leads.map((lead, index) => (
+                    <motion.div
                         key={lead.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.03, duration: 0.2 }}
                         onClick={() => setSelectedLead(lead)}
                         className="group px-6 py-4 border-b border-neutral-200/60 bg-white hover:bg-neutral-50 cursor-pointer transition-colors"
                     >
@@ -248,13 +252,19 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                                 )}
                             </div>
                         )}
-                    </div>
+                    </motion.div>
                 ))}
             </div>
 
             {/* Slide-over Details Panel */}
             {selectedLead && (
-                <div className="absolute inset-0 bg-white z-50 flex flex-col shadow-[-10px_0_30px_rgba(0,0,0,0.05)] animate-in slide-in-from-right-full">
+                <motion.div
+                    initial={{ x: '100%', opacity: 0.5 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    exit={{ x: '100%', opacity: 0 }}
+                    transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                    className="absolute inset-0 bg-white z-50 flex flex-col shadow-[-10px_0_30px_rgba(0,0,0,0.05)]"
+                >
                     <div className="px-6 py-5 border-b border-neutral-100 bg-neutral-50/50 flex items-center justify-between shadow-sm">
                         <div className="flex items-center gap-3">
                             <div className={`p-2 rounded-full bg-white border shadow-sm ${statusColors[selectedLead.status]}`}>
@@ -385,7 +395,7 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                             </div>
                         </div>
                     </div>
-                </div>
+                </motion.div>
             )}
         </div>
     );
