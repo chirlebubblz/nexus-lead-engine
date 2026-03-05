@@ -11,7 +11,7 @@ const ADMIN_EMAIL = 'jerafisabalo@gmail.com';
 export async function POST(request: Request) {
     try {
         const body = await request.json();
-        const { query, latitude, longitude, radius = 5000, pageToken: clientPageToken } = body;
+        const { query, latitude, longitude, radius = 5000, pageToken: clientPageToken, clearExisting = true } = body;
 
         if (!query || !latitude || !longitude) {
             return NextResponse.json(
@@ -54,8 +54,8 @@ export async function POST(request: Request) {
             }
         }
 
-        // Wipe the database ONLY if this is a fresh search (no pageToken provided)
-        if (!clientPageToken) {
+        // Wipe the database ONLY if this is a fresh search and clearExisting is requested
+        if (!clientPageToken && clearExisting) {
             await deleteAllLeads();
         }
 

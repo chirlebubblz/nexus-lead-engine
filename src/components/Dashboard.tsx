@@ -4,43 +4,12 @@ import { useState, useEffect, useRef } from 'react';
 import { useLeads } from '@/hooks/useLeads';
 import MapWrapper from '@/components/MapWrapper';
 import LeadList from '@/components/LeadList';
-import { Search, MapPin, Grid3X3, XCircle, Loader2, Map as MapIcon, Layers } from 'lucide-react';
-
-// --- STARTER COORDINATE DATABASE ---
-const LOCATION_DATA: Record<string, { name: string, lat: number, lng: number }[]> = {
-    "California": [
-        { name: "Los Angeles", lat: 34.0522, lng: -118.2437 },
-        { name: "San Francisco", lat: 37.7749, lng: -122.4194 },
-        { name: "San Diego", lat: 32.7157, lng: -117.1611 },
-        { name: "Sacramento", lat: 38.5816, lng: -121.4944 },
-        { name: "Fresno", lat: 36.7378, lng: -119.7871 },
-        { name: "San Jose", lat: 37.3382, lng: -121.8863 }
-    ],
-    "Texas": [
-        { name: "Houston", lat: 29.7604, lng: -95.3698 },
-        { name: "Austin", lat: 30.2672, lng: -97.7431 },
-        { name: "Dallas", lat: 32.7767, lng: -96.7970 },
-        { name: "San Antonio", lat: 29.4241, lng: -98.4936 }
-    ],
-    "Florida": [
-        { name: "Miami", lat: 25.7617, lng: -80.1918 },
-        { name: "Orlando", lat: 28.5383, lng: -81.3792 },
-        { name: "Tampa", lat: 27.9506, lng: -82.4572 },
-        { name: "Jacksonville", lat: 30.3322, lng: -81.6557 }
-    ],
-    "New York": [
-        { name: "New York City", lat: 40.7128, lng: -74.0060 },
-        { name: "Buffalo", lat: 42.8802, lng: -78.8787 },
-        { name: "Rochester", lat: 43.1566, lng: -77.6088 },
-        { name: "Albany", lat: 42.6526, lng: -73.7562 }
-    ]
-};
+import { Search, MapPin, Grid3X3, XCircle, Loader2, Map as MapIcon, Layers, Globe } from 'lucide-react';
+import { LOCATION_DATA } from '@/data/locations';
 
 export default function Dashboard() {
     const { leads, loading, refetch } = useLeads();
     const [query, setQuery] = useState('cleaning companies');
-
-    // UI Navigation State
     const [activeTab, setActiveTab] = useState<'local' | 'hopper'>('local');
 
     // --- LOCAL SEARCH STATES ---
@@ -52,25 +21,37 @@ export default function Dashboard() {
     const [gridSize, setGridSize] = useState<number>(3);
     const [sweepProgress, setSweepProgress] = useState({ current: 0, total: 0 });
 
-    // --- HOPPER STATES ---
-    const [selectedState, setSelectedState] = useState<string>('California');
+    // --- HOPPER STATES (Cascading) ---
+    const availableCountries = Object.keys(LOCATION_DATA);
+    const [selectedCountry, setSelectedCountry] = useState<string>(availableCountries[0]);
+
+    const availableStates = LOCATION_DATA[selectedCountry] ? Object.keys(LOCATION_DATA[selectedCountry]) : [];
+    const [selectedState, setSelectedState] = useState<string>(availableStates.includes('California') ? 'California' : availableStates[0]);
+
+    const availableCities = LOCATION_DATA[selectedCountry]?.[selectedState] || [];
     const [selectedCities, setSelectedCities] = useState<string[]>([]);
+
     const [isHopping, setIsHopping] = useState(false);
     const [hopperProgress, setHopperProgress] = useState({ cityIndex: 0, totalCities: 0, currentCity: '', currentGrid: 0, totalGrid: 0 });
 
-    // Global abort ref
     const isSweepingRef = useRef(false);
-
     const [mapCenter, setMapCenter] = useState<{ lat: number, lng: number } | null>({ lat: 34.0522, lng: -118.2437 });
     const [mapBounds, setMapBounds] = useState({ lat: 34.0522, lng: -118.2437, radius: 2000 });
     const dropdownRef = useRef<HTMLDivElement>(null);
 
-    // Default select all cities when a state is chosen
+    // Cascading Logic: Update State when Country changes
     useEffect(() => {
-        if (LOCATION_DATA[selectedState]) {
-            setSelectedCities(LOCATION_DATA[selectedState].map(c => c.name));
+        const states = Object.keys(LOCATION_DATA[selectedCountry] || {});
+        if (states.length > 0 && !states.includes(selectedState)) {
+            setSelectedState(states[0]);
         }
-    }, [selectedState]);
+    }, [selectedCountry]);
+
+    // Cascading Logic: Update Cities when State changes
+    useEffect(() => {
+        const cities = LOCATION_DATA[selectedCountry]?.[selectedState] || [];
+        setSelectedCities(cities.map(c => c.name));
+    }, [selectedCountry, selectedState]);
 
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
@@ -126,7 +107,6 @@ export default function Dashboard() {
         );
     };
 
-    // --- ORCHESTRATOR: LOCAL GRID SWEEP ---
     const handleLocalSearch = async (centerLat: number, centerLng: number, radius: number) => {
         if (!query) return alert('Please enter a search query first');
         setIsSearching(true);
@@ -167,7 +147,7 @@ export default function Dashboard() {
                     await fetch('/api/search', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ query, latitude: gridLat, longitude: gridLng, radius: 2500 })
+                        body: JSON.stringify({ query, latitude: gridLat, longitude: gridLng, radius: 2500, clearExisting: completed === 1 })
                     });
                     await refetch();
                 } catch (error) { }
@@ -179,7 +159,6 @@ export default function Dashboard() {
         isSweepingRef.current = false;
     };
 
-    // --- ORCHESTRATOR: STATEWIDE CITY HOPPER ---
     const handleCityHopper = async () => {
         if (!query) return alert('Please enter a search query first');
         if (selectedCities.length === 0) return alert('Please select at least one city.');
@@ -187,21 +166,19 @@ export default function Dashboard() {
         setIsHopping(true);
         isSweepingRef.current = true;
 
-        const citiesToScrape = LOCATION_DATA[selectedState].filter(c => selectedCities.includes(c.name));
+        const citiesToScrape = availableCities.filter(c => selectedCities.includes(c.name));
         const LAT_STEP = 0.027; const LNG_STEP = 0.034;
-        // Run a 3x3 grid (9 searches) per city to capture the metro area
         const gridsPerCity = 3 * 3;
+        let isFirst = true;
 
         for (let i = 0; i < citiesToScrape.length; i++) {
             if (!isSweepingRef.current) return;
 
             const city = citiesToScrape[i];
-            // Move map to current city
             setMapCenter({ lat: city.lat, lng: city.lng });
 
             let currentGridCount = 0;
 
-            // 3x3 Grid Loop for the current city
             for (let x = -1; x <= 1; x++) {
                 for (let y = -1; y <= 1; y++) {
                     if (!isSweepingRef.current) return;
@@ -222,17 +199,16 @@ export default function Dashboard() {
                         await fetch('/api/search', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ query, latitude: gridLat, longitude: gridLng, radius: 2500 })
+                            body: JSON.stringify({ query, latitude: gridLat, longitude: gridLng, radius: 2500, clearExisting: isFirst })
                         });
+                        isFirst = false;
                         await refetch();
                     } catch (error) { }
 
-                    // 2-second rest between grid points
                     await new Promise(resolve => setTimeout(resolve, 2000));
                 }
             }
 
-            // 5-second rest before hopping to the next major city
             if (i < citiesToScrape.length - 1) {
                 await new Promise(resolve => setTimeout(resolve, 5000));
             }
@@ -245,10 +221,8 @@ export default function Dashboard() {
     return (
         <div className="flex h-screen w-full bg-neutral-100 overflow-hidden relative">
 
-            {/* Sidebar / List View */}
             <div className="w-1/3 min-w-[420px] h-full flex flex-col bg-white border-r border-neutral-200 z-10 shadow-xl">
 
-                {/* Header & Tabs */}
                 <div className="p-6 border-b border-neutral-100 bg-white shrink-0">
                     <h1 className="text-2xl font-bold text-neutral-900 tracking-tight">Nexus Lead Engine</h1>
 
@@ -257,17 +231,16 @@ export default function Dashboard() {
                             onClick={() => setActiveTab('local')}
                             className={`flex-1 py-1.5 text-sm font-medium rounded-md flex items-center justify-center gap-2 transition-all ${activeTab === 'local' ? 'bg-white text-blue-600 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
                         >
-                            <MapIcon size={16} /> Local Search
+                            <MapIcon size={16} /> Local
                         </button>
                         <button
                             onClick={() => setActiveTab('hopper')}
                             className={`flex-1 py-1.5 text-sm font-medium rounded-md flex items-center justify-center gap-2 transition-all ${activeTab === 'hopper' ? 'bg-white text-blue-600 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
                         >
-                            <Layers size={16} /> State Sweep
+                            <Globe size={16} /> Macro Sweep
                         </button>
                     </div>
 
-                    {/* Shared Query Input */}
                     <div className="relative flex items-center mb-4">
                         <Search className="absolute left-3 text-neutral-400" size={18} />
                         <input
@@ -348,24 +321,41 @@ export default function Dashboard() {
                         </div>
                     )}
 
-                    {/* TAB: CITY HOPPER (STATEWIDE) */}
+                    {/* TAB: CITY HOPPER (MACRO) */}
                     {activeTab === 'hopper' && (
                         <div className="space-y-3 animate-in fade-in flex flex-col h-full">
-                            <select
-                                value={selectedState}
-                                onChange={(e) => setSelectedState(e.target.value)}
-                                disabled={isHopping || isSearching}
-                                className="w-full px-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-medium disabled:opacity-60"
-                            >
-                                {Object.keys(LOCATION_DATA).map(state => (
-                                    <option key={state} value={state}>{state}</option>
-                                ))}
-                            </select>
+
+                            {/* Cascading Dropdowns */}
+                            <div className="flex gap-2">
+                                <select
+                                    value={selectedCountry}
+                                    onChange={(e) => setSelectedCountry(e.target.value)}
+                                    disabled={isHopping || isSearching}
+                                    className="w-1/2 px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-medium disabled:opacity-60"
+                                >
+                                    {availableCountries.map(country => (
+                                        <option key={country} value={country}>{country}</option>
+                                    ))}
+                                </select>
+
+                                <select
+                                    value={selectedState}
+                                    onChange={(e) => setSelectedState(e.target.value)}
+                                    disabled={isHopping || isSearching || availableStates.length === 0}
+                                    className="w-1/2 px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-medium disabled:opacity-60"
+                                >
+                                    {availableStates.map(state => (
+                                        <option key={state} value={state}>{state}</option>
+                                    ))}
+                                </select>
+                            </div>
 
                             <div className="bg-white border border-neutral-200 rounded-lg p-3 max-h-40 overflow-y-auto shadow-inner">
-                                <div className="text-xs font-bold text-neutral-400 mb-2 uppercase tracking-wider">Target Cities ({selectedCities.length})</div>
+                                <div className="text-xs font-bold text-neutral-400 mb-2 uppercase tracking-wider">
+                                    {selectedState} Cities ({selectedCities.length})
+                                </div>
                                 <div className="grid grid-cols-2 gap-2">
-                                    {LOCATION_DATA[selectedState].map(city => (
+                                    {availableCities.map(city => (
                                         <label key={city.name} className="flex items-center gap-2 text-sm text-neutral-700 cursor-pointer">
                                             <input
                                                 type="checkbox"
@@ -382,11 +372,11 @@ export default function Dashboard() {
 
                             {isHopping ? (
                                 <button onClick={stopSweep} className="w-full mt-2 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition-colors">
-                                    <XCircle size={18} /> Abort City Hopper
+                                    <XCircle size={18} /> Abort Macro Sweep
                                 </button>
                             ) : (
                                 <button onClick={handleCityHopper} disabled={isSearching || selectedCities.length === 0} className="w-full mt-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-70 disabled:cursor-not-allowed shadow-sm">
-                                    <Layers size={18} /> Start Multi-City Sweep
+                                    <Layers size={18} /> Start Macro Sweep
                                 </button>
                             )}
                         </div>
@@ -423,12 +413,12 @@ export default function Dashboard() {
                     </div>
                 )}
 
-                {/* City Hopper Progress */}
+                {/* Macro Sweep Progress */}
                 {isHopping && activeTab === 'hopper' && (
                     <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-96 bg-white/95 backdrop-blur rounded-xl shadow-2xl border border-indigo-100 p-5 z-[1000]">
                         <div className="flex justify-between items-center mb-2">
                             <h3 className="font-bold text-neutral-900 flex items-center gap-2">
-                                <Loader2 size={16} className="animate-spin text-indigo-600" /> Hopping Cities...
+                                <Loader2 size={16} className="animate-spin text-indigo-600" /> Macro Sweep Active...
                             </h3>
                             <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-full">
                                 City {hopperProgress.cityIndex} of {hopperProgress.totalCities}
