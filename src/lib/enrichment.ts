@@ -10,7 +10,7 @@ const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
 
 async function callGeminiWithBackoff(prompt: string, maxRetries = 3): Promise<string> {
     let attempt = 0;
-    let delay = 2000; // Increased base delay to help with rate limiting
+    let delay = 2000;
 
     while (attempt < maxRetries) {
         try {
@@ -123,66 +123,62 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
         ? `\n--- Social Links Found Hidden in Website Footer ---\n${rawSocialLinks.join('\n')}`
         : '';
 
-    // THE NEW PURE-EXTRACTION PROMPT
+    // PROMPT UPDATED TO GRAB MULTIPLE CONTACTS
     const prompt = `
-    You are an expert data analyst. Your sole job is to extract contact info, social profiles, and write a summary. DO NOT filter, judge, or reject the lead.
+    You are an expert data analyst. Your sole job is to extract contact info, social profiles, and write a summary. DO NOT filter or judge the lead.
 
     Business Name: ${lead.business_name}
     Address: ${lead.address}
-    Provided Phone: ${lead.phone || 'N/A'}
     Website: ${websiteUrl || 'N/A'}
     
     --- Official Website Content ---
     ${scrapedText || 'No website content could be scraped.'}
     ${formattedSocials}
     
-    --- Google Search Snippets ---
-    ${searchContext || 'No search context found.'}
-    
     CRITICAL INSTRUCTIONS:
-    1. Scan the text, footer links, and snippets to build a list of social profiles.
-    2. Extract explicit emails, owner names, or management team members.
+    1. Scan the text to find ALL management team members, owners, and executives.
+    2. Extract their names, roles, and explicit email addresses. Add them all to the "management_team" array.
     3. Write a 1-2 sentence summary of what the business does.
-    4. DO NOT reject or categorize the business as "bad". Extract the data no matter what.
     
     Task: Extract the following information as STRICT JSON without markdown fences or extra text:
     {
-      "decision_maker_name": "Name of CEO/Owner/Manager if found, else null",
-      "decision_maker_role": "Role (e.g., Owner, CEO) if found, else null",
-      "contact_email": "Best contact email if found, else null",
-      "social_profiles": { "linkedin": "url", "facebook": "url", "instagram": "url", "twitter": "url", "youtube": "url", "tiktok": "url", "yelp": "url" } or null,
-      "enrichment_summary": "A 1-2 sentence summary of what this business does and who the key contact is."
+      "management_team": [
+        {
+          "name": "Name of CEO/Owner/Manager",
+          "role": "Role (e.g., President, Manager)",
+          "email": "Direct contact email"
+        }
+      ],
+      "social_profiles": { "linkedin": "url", "facebook": "url", "instagram": "url", "twitter": "url" } or null,
+      "enrichment_summary": "A 1-2 sentence summary of what this business does."
     }
   `;
 
     try {
         const rawResult = await callGeminiWithBackoff(prompt);
         let cleanedJson = rawResult.trim();
-        if (cleanedJson.startsWith('```json')) {
-            cleanedJson = cleanedJson.replace(/```json/g, '').replace(/```/g, '').trim();
-        } else if (cleanedJson.startsWith('```')) {
-            cleanedJson = cleanedJson.replace(/```/g, '').trim();
-        }
+        if (cleanedJson.startsWith('```json')) cleanedJson = cleanedJson.replace(/```json/g, '').replace(/```/g, '').trim();
+        else if (cleanedJson.startsWith('```')) cleanedJson = cleanedJson.replace(/```/g, '').trim();
 
         const parsedData = JSON.parse(cleanedJson);
 
         let existingProfiles: Record<string, string> = {};
-        if (lead.social_profiles) {
-            existingProfiles = typeof lead.social_profiles === 'string'
-                ? JSON.parse(lead.social_profiles)
-                : lead.social_profiles;
-        }
+        if (lead.social_profiles) existingProfiles = typeof lead.social_profiles === 'string' ? JSON.parse(lead.social_profiles) : lead.social_profiles;
 
-        const newProfiles = parsedData.social_profiles || {};
-        const mergedProfiles = { ...existingProfiles, ...newProfiles };
+        const mergedProfiles = { ...existingProfiles, ...(parsedData.social_profiles || {}) };
 
-        // 100% APPROVAL RATE
+        // Parse the new management team array into comma-separated strings for the database
+        const team = parsedData.management_team || [];
+        const allNames = team.map((t: any) => t.name).filter(Boolean).join(', ');
+        const allRoles = team.map((t: any) => t.role).filter(Boolean).join(', ');
+        const allEmails = team.map((t: any) => t.email).filter(Boolean).join(', ');
+
         return {
             website: websiteUrl,
-            status: 'verified', // It will always go Green now
-            decision_maker_name: parsedData.decision_maker_name || null,
-            decision_maker_role: parsedData.decision_maker_role || null,
-            contact_email: parsedData.contact_email || null,
+            status: 'verified',
+            decision_maker_name: allNames || null,
+            decision_maker_role: allRoles || null,
+            contact_email: allEmails || null,
             social_profiles: Object.keys(mergedProfiles).length > 0 ? mergedProfiles : null,
             enrichment_summary: parsedData.enrichment_summary || null,
         };
