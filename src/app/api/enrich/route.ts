@@ -37,8 +37,8 @@ export async function POST(request: Request) {
                 try {
                     await updateLeadStatus(lead.id, 'researching');
 
-                    // Pass the dynamic UI criteria to Gemini
-                    const enrichmentData = await processEnrichment(lead, criteria);
+                    // Process lead extraction
+                    const enrichmentData = await processEnrichment(lead);
 
                     await updateLeadStatus(lead.id, 'verified', enrichmentData);
                     console.log(`Successfully enriched lead: ${lead.id}`);

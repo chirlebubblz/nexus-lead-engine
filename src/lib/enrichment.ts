@@ -8,10 +8,9 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY!);
 const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
 
-// --- HELPER: Gemini API with Exponential Backoff ---
 async function callGeminiWithBackoff(prompt: string, maxRetries = 3): Promise<string> {
     let attempt = 0;
-    let delay = 1000;
+    let delay = 2000; // Increased base delay to help with rate limiting
 
     while (attempt < maxRetries) {
         try {
@@ -31,7 +30,6 @@ async function callGeminiWithBackoff(prompt: string, maxRetries = 3): Promise<st
     throw new Error('Gemini API failed after max retries due to rate limiting.');
 }
 
-// --- HELPER: Google Custom Search Fallback ---
 async function searchGoogle(query: string) {
     if (!GOOGLE_SEARCH_API_KEY || !GOOGLE_SEARCH_CX) return [];
     try {
@@ -44,7 +42,6 @@ async function searchGoogle(query: string) {
     }
 }
 
-// --- HELPER: Jina AI Web Scraper (For Main Text & Emails) ---
 async function scrapeWebsiteWithAPI(url: string): Promise<string> {
     try {
         const response = await fetch(`https://r.jina.ai/${url}`, {
@@ -61,7 +58,6 @@ async function scrapeWebsiteWithAPI(url: string): Promise<string> {
     }
 }
 
-// --- HELPER: Raw Social Media Scanner (Bypasses Jina's Footer Deletion) ---
 async function extractRawSocials(url: string): Promise<string[]> {
     try {
         const controller = new AbortController();
@@ -77,7 +73,6 @@ async function extractRawSocials(url: string): Promise<string[]> {
         const html = await res.text();
 
         const socials = new Set<string>();
-        // Hunts specifically for social URLs in the raw HTML
         const regex = /href=["'](https?:\/\/(www\.)?(facebook|linkedin|instagram|twitter|x|youtube|tiktok|yelp)\.com\/[^"']+)["']/gi;
         let match;
         while ((match = regex.exec(html)) !== null) {
@@ -92,16 +87,13 @@ async function extractRawSocials(url: string): Promise<string[]> {
     }
 }
 
-// --- MAIN ENGINE: Process Enrichment ---
-export async function processEnrichment(lead: Lead, criteria?: { description: string, target: string }): Promise<Partial<Lead>> {
+export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
     let websiteUrl = lead.website;
     let searchContext = '';
     let scrapedText = '';
     let rawSocialLinks: string[] = [];
 
-    // 1. Scrape the official website using Jina (Text) AND Raw Fetch (Socials)
     if (websiteUrl) {
-        // Run both scanners at the same time for speed
         const [jinaResult, socialResult] = await Promise.all([
             scrapeWebsiteWithAPI(websiteUrl as string),
             extractRawSocials(websiteUrl as string)
@@ -110,7 +102,6 @@ export async function processEnrichment(lead: Lead, criteria?: { description: st
         rawSocialLinks = socialResult;
     }
 
-    // 2. Google Search Fallback & Cross-Reference
     const searchResults = await searchGoogle(`"${lead.business_name}" ${lead.address} LinkedIn OR Facebook OR Instagram OR official website`);
 
     if (searchResults.length > 0) {
@@ -132,45 +123,38 @@ export async function processEnrichment(lead: Lead, criteria?: { description: st
         ? `\n--- Social Links Found Hidden in Website Footer ---\n${rawSocialLinks.join('\n')}`
         : '';
 
-    const targetDesc = criteria?.description || 'business';
-    const targetFocus = criteria?.target || 'any';
-
-    // 3. Prepare Gemini Prompt 
+    // THE NEW PURE-EXTRACTION PROMPT
     const prompt = `
-    You are an expert lead generation data analyst. Your job is to extract decision-maker contact info, find social profiles, and flag "bad" leads.
-    
+    You are an expert data analyst. Your sole job is to extract contact info, social profiles, and write a summary. DO NOT filter, judge, or reject the lead.
+
     Business Name: ${lead.business_name}
     Address: ${lead.address}
     Provided Phone: ${lead.phone || 'N/A'}
     Website: ${websiteUrl || 'N/A'}
     
-    --- Official Website Content (Jina AI Extraction) ---
+    --- Official Website Content ---
     ${scrapedText || 'No website content could be scraped.'}
     ${formattedSocials}
     
-    --- Google Search Snippets (FOR CROSS-REFERENCING) ---
+    --- Google Search Snippets ---
     ${searchContext || 'No search context found.'}
     
     CRITICAL INSTRUCTIONS:
-    1. Scan the "Social Links Found Hidden in Website Footer" and the Google Search snippets to build a complete list of social profiles.
-    2. Look for explicit emails, owner names, or management team members. Do not guess emails.
-    3. CATEGORIZATION RULES: You are looking specifically for a "${targetDesc}". The target market focus must be "${targetFocus}". 
-       - If the target market is "Commercial/B2B" and this business strictly serves "Residential/Consumers" (or vice versa), set the "lead_quality" to "bad" and explain why.
-       - If it is a permanently closed business, or completely unrelated to a "${targetDesc}", set the "lead_quality" to "bad".
-       - Otherwise, set it to "good".
+    1. Scan the text, footer links, and snippets to build a list of social profiles.
+    2. Extract explicit emails, owner names, or management team members.
+    3. Write a 1-2 sentence summary of what the business does.
+    4. DO NOT reject or categorize the business as "bad". Extract the data no matter what.
     
     Task: Extract the following information as STRICT JSON without markdown fences or extra text:
     {
-      "lead_quality": "good" or "bad",
       "decision_maker_name": "Name of CEO/Owner/Manager if found, else null",
       "decision_maker_role": "Role (e.g., Owner, CEO) if found, else null",
       "contact_email": "Best contact email if found, else null",
       "social_profiles": { "linkedin": "url", "facebook": "url", "instagram": "url", "twitter": "url", "youtube": "url", "tiktok": "url", "yelp": "url" } or null,
-      "enrichment_summary": "A 1-2 sentence summary of what this business does and who the key contact is. If lead_quality is bad, explain why."
+      "enrichment_summary": "A 1-2 sentence summary of what this business does and who the key contact is."
     }
   `;
 
-    // 4. Call Gemini
     try {
         const rawResult = await callGeminiWithBackoff(prompt);
         let cleanedJson = rawResult.trim();
@@ -192,11 +176,10 @@ export async function processEnrichment(lead: Lead, criteria?: { description: st
         const newProfiles = parsedData.social_profiles || {};
         const mergedProfiles = { ...existingProfiles, ...newProfiles };
 
-        const finalStatus = parsedData.lead_quality === 'bad' ? 'failed' : 'verified';
-
+        // 100% APPROVAL RATE
         return {
             website: websiteUrl,
-            status: finalStatus,
+            status: 'verified', // It will always go Green now
             decision_maker_name: parsedData.decision_maker_name || null,
             decision_maker_role: parsedData.decision_maker_role || null,
             contact_email: parsedData.contact_email || null,
@@ -208,7 +191,7 @@ export async function processEnrichment(lead: Lead, criteria?: { description: st
         return {
             website: websiteUrl,
             status: 'failed',
-            enrichment_summary: 'Failed to extract AI data.',
+            enrichment_summary: 'Failed to extract AI data due to Google Gemini rate limits.',
         };
     }
 }
