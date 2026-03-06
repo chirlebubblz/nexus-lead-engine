@@ -55,11 +55,13 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
     };
 
     const handleBatchEnrich = async () => {
-        const pendingLeads = leads.filter(l => l.status === 'pending');
-        if (pendingLeads.length === 0) return alert('No pending leads to enrich.');
+        const isRetry = batchSize === 'failed';
+        const targetLeads = leads.filter(l => l.status === (isRetry ? 'failed' : 'pending'));
 
-        const limit = batchSize === 'all' ? pendingLeads.length : parseInt(batchSize, 10);
-        const leadsToProcess = pendingLeads.slice(0, limit);
+        if (targetLeads.length === 0) return alert(`No ${isRetry ? 'failed' : 'pending'} leads to enrich.`);
+
+        const limit = (batchSize === 'all' || batchSize === 'failed') ? targetLeads.length : parseInt(batchSize, 10);
+        const leadsToProcess = targetLeads.slice(0, limit);
 
         setIsBatchEnriching(true);
         setEnrichProgress({ current: 0, total: leadsToProcess.length });
@@ -133,10 +135,11 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                                 <option value="20">Enrich 20 Leads</option>
                                 <option value="100">Enrich 100 Leads</option>
                                 <option value="all">Enrich All Leads</option>
+                                <option value="failed">Retry All Failed Leads</option>
                             </select>
                             <button
                                 onClick={handleBatchEnrich}
-                                disabled={isBatchEnriching || leads.filter(l => l.status === 'pending').length === 0}
+                                disabled={isBatchEnriching || leads.filter(l => l.status === (batchSize === 'failed' ? 'failed' : 'pending')).length === 0}
                                 className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {isBatchEnriching ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
@@ -292,21 +295,23 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                                         <Loader2 size={18} className="animate-spin shrink-0" />
                                         Gemini is currently categorizing the business and finding contact info...
                                     </div>
-                                ) : selectedLead.status === 'pending' ? (
+                                ) : selectedLead.status === 'pending' || selectedLead.status === 'failed' ? (
                                     <div className="flex flex-col items-center justify-center p-6 bg-neutral-50 rounded-lg text-center gap-3 border border-neutral-100">
-                                        <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm border border-neutral-200">
-                                            <Sparkles size={24} className="text-blue-600" />
+                                        <div className={`w-12 h-12 rounded-full flex items-center justify-center shadow-sm border ${selectedLead.status === 'failed' ? 'bg-red-50 border-red-200 text-red-600' : 'bg-white border-neutral-200 text-blue-600'}`}>
+                                            {selectedLead.status === 'failed' ? <XCircle size={24} /> : <Sparkles size={24} />}
                                         </div>
                                         <div>
-                                            <h4 className="font-semibold text-neutral-900">Unlock Hidden Details</h4>
-                                            <p className="text-sm text-neutral-500 mt-1 max-w-xs mx-auto">Deploy Gemini AI to qualify the market and find the decision makers.</p>
+                                            <h4 className="font-semibold text-neutral-900">{selectedLead.status === 'failed' ? 'Enrichment Failed' : 'Unlock Hidden Details'}</h4>
+                                            <p className="text-sm text-neutral-500 mt-1 max-w-xs mx-auto">
+                                                {selectedLead.status === 'failed' ? selectedLead.enrichment_summary || 'The AI was unable to parse this lead due to an error. You can try running it again.' : 'Deploy Gemini AI to qualify the market and find the decision makers.'}
+                                            </p>
                                         </div>
                                         <button
                                             onClick={() => handleEnrich(selectedLead.id)}
                                             className="mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-medium py-2.5 px-6 rounded-lg flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95"
                                         >
                                             <Sparkles size={16} />
-                                            Enrich with AI
+                                            {selectedLead.status === 'failed' ? 'Retry AI Enrichment' : 'Enrich with AI'}
                                         </button>
                                     </div>
                                 ) : (
