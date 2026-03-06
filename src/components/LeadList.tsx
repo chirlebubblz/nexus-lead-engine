@@ -11,9 +11,6 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
     const [isBatchEnriching, setIsBatchEnriching] = useState(false);
     const [enrichProgress, setEnrichProgress] = useState({ current: 0, total: 0 });
 
-    // --- AI SPECIFICATION STATES ---
-    const [targetDesc, setTargetDesc] = useState('solar company');
-    const [targetMarket, setTargetMarket] = useState('Commercial/B2B');
 
     // --- PAGINATION STATES ---
     const [currentPage, setCurrentPage] = useState(1);
@@ -42,10 +39,7 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
             const res = await fetch('/api/enrich', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    leadIds: [leadId],
-                    criteria: { description: targetDesc, target: targetMarket }
-                }),
+                body: JSON.stringify({ leadIds: [leadId] }),
             });
             if (!res.ok) throw new Error('Enrichment failed');
             if (refetch) refetch();
@@ -82,10 +76,7 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                 await fetch('/api/enrich', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        leadIds: chunkIds,
-                        criteria: { description: targetDesc, target: targetMarket }
-                    }),
+                    body: JSON.stringify({ leadIds: chunkIds }),
                 });
 
                 if (refetch) refetch();
@@ -127,31 +118,7 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
             <div className="flex flex-col bg-white border-b border-neutral-200 shrink-0 z-10">
                 <div className="p-4 flex flex-col gap-3">
 
-                    {/* THE SYSTEMATIZED SPECIFICATION UI */}
-                    <div className="flex flex-col xl:flex-row xl:items-center gap-3 p-3 bg-indigo-50/50 border border-indigo-100 rounded-lg">
-                        <div className="flex items-center gap-2">
-                            <Sparkles size={16} className="text-indigo-500 shrink-0" />
-                            <span className="text-xs font-bold text-indigo-900 uppercase tracking-wider whitespace-nowrap">AI Filter:</span>
-                        </div>
-                        <div className="flex-1 flex gap-2">
-                            <input
-                                type="text"
-                                value={targetDesc}
-                                onChange={(e) => setTargetDesc(e.target.value)}
-                                placeholder='e.g., "solar company"'
-                                className="flex-1 min-w-[120px] bg-white border border-indigo-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                            />
-                            <select
-                                value={targetMarket}
-                                onChange={(e) => setTargetMarket(e.target.value)}
-                                className="bg-white border border-indigo-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shrink-0"
-                            >
-                                <option value="Commercial/B2B">Commercial / B2B</option>
-                                <option value="Residential/B2C">Residential</option>
-                                <option value="Either/Both">Any Market</option>
-                            </select>
-                        </div>
-                    </div>
+
 
                     {/* Batch Controls */}
                     <div className="flex items-center justify-between">
