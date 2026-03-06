@@ -6,7 +6,7 @@ const GOOGLE_SEARCH_CX = process.env.GOOGLE_SEARCH_CX;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY!);
-const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
+const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
 async function callGeminiWithBackoff(prompt: string, maxRetries = 3): Promise<string> {
     let attempt = 0;
