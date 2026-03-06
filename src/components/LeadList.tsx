@@ -104,20 +104,6 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
         setIsBatchEnriching(false);
     };
 
-    if (loading && leads.length === 0) {
-        return <div className="p-8 text-center text-neutral-400 animate-pulse flex-1">Loading leads database...</div>;
-    }
-
-    if (!loading && leads.length === 0 && !isSearching) {
-        return (
-            <div className="h-full flex flex-col items-center justify-center p-8 text-neutral-400 flex-1">
-                <MapPin size={48} className="mb-4 text-neutral-200" />
-                <p className="text-center font-medium text-neutral-500">No leads found yet.</p>
-                <p className="text-center text-sm mt-1">Move the map and click "Search This Area" to begin.</p>
-            </div>
-        );
-    }
-
     const getStatusIcon = (status: string) => {
         switch (status) {
             case 'verified': return <CheckCircle2 className="text-emerald-500" size={16} />;
@@ -136,120 +122,130 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
 
     return (
         <div className="relative h-full flex flex-col w-full">
-            {!loading && leads.length > 0 && (
-                <div className="flex flex-col bg-white border-b border-neutral-200 shrink-0">
-                    <div className="p-4 flex flex-col gap-3">
 
-                        {/* THE NEW SYSTEMATIZED SPECIFICATION UI */}
-                        <div className="flex flex-col xl:flex-row xl:items-center gap-3 p-3 bg-indigo-50/50 border border-indigo-100 rounded-lg">
-                            <div className="flex items-center gap-2">
-                                <Sparkles size={16} className="text-indigo-500 shrink-0" />
-                                <span className="text-xs font-bold text-indigo-900 uppercase tracking-wider whitespace-nowrap">AI Filter:</span>
-                            </div>
-                            <div className="flex-1 flex gap-2">
-                                <input
-                                    type="text"
-                                    value={targetDesc}
-                                    onChange={(e) => setTargetDesc(e.target.value)}
-                                    placeholder='e.g., "solar company"'
-                                    className="flex-1 min-w-[120px] bg-white border border-indigo-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                                />
-                                <select
-                                    value={targetMarket}
-                                    onChange={(e) => setTargetMarket(e.target.value)}
-                                    className="bg-white border border-indigo-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shrink-0"
-                                >
-                                    <option value="Commercial/B2B">Commercial / B2B</option>
-                                    <option value="Residential/B2C">Residential</option>
-                                    <option value="Either/Both">Any Market</option>
-                                </select>
-                            </div>
+            {/* ALWAYS VISIBLE: Top Bar for Batch Actions & AI Qualification Rules */}
+            <div className="flex flex-col bg-white border-b border-neutral-200 shrink-0 z-10">
+                <div className="p-4 flex flex-col gap-3">
+
+                    {/* THE SYSTEMATIZED SPECIFICATION UI */}
+                    <div className="flex flex-col xl:flex-row xl:items-center gap-3 p-3 bg-indigo-50/50 border border-indigo-100 rounded-lg">
+                        <div className="flex items-center gap-2">
+                            <Sparkles size={16} className="text-indigo-500 shrink-0" />
+                            <span className="text-xs font-bold text-indigo-900 uppercase tracking-wider whitespace-nowrap">AI Filter:</span>
                         </div>
-
-                        {/* Existing Batch Controls */}
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <select
-                                    value={batchSize}
-                                    onChange={(e) => setBatchSize(e.target.value)}
-                                    className="bg-neutral-50 border border-neutral-200 text-sm rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                                    disabled={isBatchEnriching}
-                                >
-                                    <option value="5">Enrich 5 Leads</option>
-                                    <option value="20">Enrich 20 Leads</option>
-                                    <option value="100">Enrich 100 Leads</option>
-                                    <option value="all">Enrich All Leads</option>
-                                </select>
-                                <button
-                                    onClick={handleBatchEnrich}
-                                    disabled={isBatchEnriching || leads.filter(l => l.status === 'pending').length === 0}
-                                    className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    {isBatchEnriching ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                                    {isBatchEnriching ? 'Running AI...' : 'Run AI'}
-                                </button>
-                            </div>
+                        <div className="flex-1 flex gap-2">
+                            <input
+                                type="text"
+                                value={targetDesc}
+                                onChange={(e) => setTargetDesc(e.target.value)}
+                                placeholder='e.g., "solar company"'
+                                className="flex-1 min-w-[120px] bg-white border border-indigo-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                            />
+                            <select
+                                value={targetMarket}
+                                onChange={(e) => setTargetMarket(e.target.value)}
+                                className="bg-white border border-indigo-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shrink-0"
+                            >
+                                <option value="Commercial/B2B">Commercial / B2B</option>
+                                <option value="Residential/B2C">Residential</option>
+                                <option value="Either/Both">Any Market</option>
+                            </select>
                         </div>
                     </div>
 
-                    {/* AI Enrichment Progress Bar */}
-                    {isBatchEnriching && (
-                        <div className="px-4 pb-4 animate-in fade-in slide-in-from-top-2">
-                            <div className="flex justify-between items-center mb-1.5">
-                                <span className="text-xs font-semibold text-blue-600 flex items-center gap-1.5">
-                                    <Sparkles size={12} /> AI Enrichment in Progress
-                                </span>
-                                <span className="text-xs font-bold text-neutral-600">
-                                    {enrichProgress.current} / {enrichProgress.total}
-                                </span>
-                            </div>
-                            <div className="w-full bg-neutral-100 rounded-full h-1.5 overflow-hidden">
-                                <div
-                                    className="bg-gradient-to-r from-blue-500 to-indigo-500 h-1.5 rounded-full transition-all duration-500"
-                                    style={{ width: `${(enrichProgress.current / enrichProgress.total) * 100}%` }}
-                                ></div>
-                            </div>
+                    {/* Batch Controls */}
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <select
+                                value={batchSize}
+                                onChange={(e) => setBatchSize(e.target.value)}
+                                className="bg-neutral-50 border border-neutral-200 text-sm rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                disabled={isBatchEnriching}
+                            >
+                                <option value="5">Enrich 5 Leads</option>
+                                <option value="20">Enrich 20 Leads</option>
+                                <option value="100">Enrich 100 Leads</option>
+                                <option value="all">Enrich All Leads</option>
+                            </select>
+                            <button
+                                onClick={handleBatchEnrich}
+                                disabled={isBatchEnriching || leads.filter(l => l.status === 'pending').length === 0}
+                                className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {isBatchEnriching ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                                {isBatchEnriching ? 'Running AI...' : 'Run AI'}
+                            </button>
                         </div>
-                    )}
+                    </div>
                 </div>
-            )}
+
+                {/* AI Enrichment Progress Bar */}
+                {isBatchEnriching && (
+                    <div className="px-4 pb-4 animate-in fade-in slide-in-from-top-2">
+                        <div className="flex justify-between items-center mb-1.5">
+                            <span className="text-xs font-semibold text-blue-600 flex items-center gap-1.5">
+                                <Sparkles size={12} /> AI Enrichment in Progress
+                            </span>
+                            <span className="text-xs font-bold text-neutral-600">
+                                {enrichProgress.current} / {enrichProgress.total}
+                            </span>
+                        </div>
+                        <div className="w-full bg-neutral-100 rounded-full h-1.5 overflow-hidden">
+                            <div
+                                className="bg-gradient-to-r from-blue-500 to-indigo-500 h-1.5 rounded-full transition-all duration-500"
+                                style={{ width: `${(enrichProgress.current / enrichProgress.total) * 100}%` }}
+                            ></div>
+                        </div>
+                    </div>
+                )}
+            </div>
 
             {/* List of Leads */}
             <div className="flex-1 overflow-y-auto w-full flex flex-col shadow-inner bg-white">
-                {currentLeads.map((lead) => (
-                    <div
-                        key={lead.id}
-                        onClick={() => setSelectedLead(lead)}
-                        className="group px-6 py-4 border-b border-neutral-200/60 hover:bg-neutral-50 cursor-pointer transition-colors"
-                    >
-                        <div className="flex items-start justify-between">
-                            <div className="w-[80%]">
-                                <h3 className="font-semibold text-neutral-900 group-hover:text-blue-600 transition-colors truncate">
-                                    {lead.business_name}
-                                </h3>
-                                <p className="text-xs text-neutral-500 truncate mt-1">{lead.address}</p>
-                            </div>
-                            <div className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${enrichingIds.has(lead.id) ? statusColors.researching : statusColors[lead.status]}`}>
-                                {enrichingIds.has(lead.id) ? <Loader2 className="animate-spin text-blue-500" size={16} /> : getStatusIcon(lead.status)}
-                                <span className="capitalize">{enrichingIds.has(lead.id) ? 'researching' : lead.status}</span>
-                            </div>
-                        </div>
-
-                        {lead.status === 'verified' && (
-                            <div className="mt-3 flex items-center gap-4 text-xs font-medium text-neutral-600 bg-neutral-50/50 p-2 rounded-md border border-neutral-100">
-                                {lead.decision_maker_name ? (
-                                    <span className="flex items-center gap-1.5 text-neutral-800"><CheckCircle2 size={13} className="text-emerald-500" />{lead.decision_maker_name}</span>
-                                ) : (
-                                    <span className="text-neutral-400">No contact found</span>
-                                )}
-
-                                {lead.contact_email && (
-                                    <span className="flex items-center gap-1"><Mail size={12} />{lead.contact_email}</span>
-                                )}
-                            </div>
-                        )}
+                {loading && leads.length === 0 ? (
+                    <div className="p-8 text-center text-neutral-400 animate-pulse flex-1">Loading leads database...</div>
+                ) : !loading && leads.length === 0 && !isSearching ? (
+                    <div className="h-full flex flex-col items-center justify-center p-8 text-neutral-400 flex-1">
+                        <MapPin size={48} className="mb-4 text-neutral-200" />
+                        <p className="text-center font-medium text-neutral-500">No leads found yet.</p>
+                        <p className="text-center text-sm mt-1">Move the map and click "Search This Area" to begin.</p>
                     </div>
-                ))}
+                ) : (
+                    currentLeads.map((lead) => (
+                        <div
+                            key={lead.id}
+                            onClick={() => setSelectedLead(lead)}
+                            className="group px-6 py-4 border-b border-neutral-200/60 hover:bg-neutral-50 cursor-pointer transition-colors"
+                        >
+                            <div className="flex items-start justify-between">
+                                <div className="w-[80%]">
+                                    <h3 className="font-semibold text-neutral-900 group-hover:text-blue-600 transition-colors truncate">
+                                        {lead.business_name}
+                                    </h3>
+                                    <p className="text-xs text-neutral-500 truncate mt-1">{lead.address}</p>
+                                </div>
+                                <div className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${enrichingIds.has(lead.id) ? statusColors.researching : statusColors[lead.status]}`}>
+                                    {enrichingIds.has(lead.id) ? <Loader2 className="animate-spin text-blue-500" size={16} /> : getStatusIcon(lead.status)}
+                                    <span className="capitalize">{enrichingIds.has(lead.id) ? 'researching' : lead.status}</span>
+                                </div>
+                            </div>
+
+                            {lead.status === 'verified' && (
+                                <div className="mt-3 flex items-center gap-4 text-xs font-medium text-neutral-600 bg-neutral-50/50 p-2 rounded-md border border-neutral-100">
+                                    {lead.decision_maker_name ? (
+                                        <span className="flex items-center gap-1.5 text-neutral-800"><CheckCircle2 size={13} className="text-emerald-500" />{lead.decision_maker_name}</span>
+                                    ) : (
+                                        <span className="text-neutral-400">No contact found</span>
+                                    )}
+
+                                    {lead.contact_email && (
+                                        <span className="flex items-center gap-1"><Mail size={12} />{lead.contact_email}</span>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    ))
+                )}
             </div>
 
             {/* Pagination Controls Bar */}
