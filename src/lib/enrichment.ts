@@ -10,7 +10,7 @@ const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
 
 async function callGeminiWithBackoff(prompt: string, maxRetries = 3): Promise<string> {
     let attempt = 0;
-    let delay = 2000;
+    let delay = 4000; // FREE TIER: Starts with a much longer 4-second delay if rate limited
 
     while (attempt < maxRetries) {
         try {
@@ -27,7 +27,7 @@ async function callGeminiWithBackoff(prompt: string, maxRetries = 3): Promise<st
             }
         }
     }
-    throw new Error('Gemini API failed after max retries due to rate limiting.');
+    throw new Error('Gemini API blocked the request (Max retries exceeded).');
 }
 
 async function searchGoogle(query: string) {
@@ -123,7 +123,6 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
         ? `\n--- Social Links Found Hidden in Website Footer ---\n${rawSocialLinks.join('\n')}`
         : '';
 
-    // PROMPT UPDATED TO GRAB MULTIPLE CONTACTS
     const prompt = `
     You are an expert data analyst. Your sole job is to extract contact info, social profiles, and write a summary. DO NOT filter or judge the lead.
 
@@ -156,18 +155,20 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
 
     try {
         const rawResult = await callGeminiWithBackoff(prompt);
-        let cleanedJson = rawResult.trim();
-        if (cleanedJson.startsWith('```json')) cleanedJson = cleanedJson.replace(/```json/g, '').replace(/```/g, '').trim();
-        else if (cleanedJson.startsWith('```')) cleanedJson = cleanedJson.replace(/```/g, '').trim();
 
-        const parsedData = JSON.parse(cleanedJson);
+        // SURGICAL JSON EXTRACTION
+        const jsonMatch = rawResult.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+            throw new Error("AI did not return valid JSON. The website might be blocking scrapers.");
+        }
+
+        const parsedData = JSON.parse(jsonMatch[0]);
 
         let existingProfiles: Record<string, string> = {};
         if (lead.social_profiles) existingProfiles = typeof lead.social_profiles === 'string' ? JSON.parse(lead.social_profiles) : lead.social_profiles;
 
         const mergedProfiles = { ...existingProfiles, ...(parsedData.social_profiles || {}) };
 
-        // Parse the new management team array into comma-separated strings for the database
         const team = parsedData.management_team || [];
         const allNames = team.map((t: any) => t.name).filter(Boolean).join(', ');
         const allRoles = team.map((t: any) => t.role).filter(Boolean).join(', ');
@@ -182,12 +183,20 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
             social_profiles: Object.keys(mergedProfiles).length > 0 ? mergedProfiles : null,
             enrichment_summary: parsedData.enrichment_summary || null,
         };
-    } catch (error) {
+    } catch (error: any) {
         console.error('Gemini Enrichment Error:', error);
+
+        let errorMessage = 'Failed to extract data.';
+        if (error instanceof SyntaxError) {
+            errorMessage = 'Failed to parse AI response. The website is likely blank or protected by Cloudflare.';
+        } else if (error.message) {
+            errorMessage = error.message;
+        }
+
         return {
             website: websiteUrl,
             status: 'failed',
-            enrichment_summary: 'Failed to extract AI data due to Google Gemini rate limits.',
+            enrichment_summary: errorMessage,
         };
     }
 }
