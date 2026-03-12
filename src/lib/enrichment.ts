@@ -234,8 +234,41 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
 }
 
 // Bare-metal fast extraction logic expected by API routes
+// Bare-metal extraction logic, now upgraded to use Scrapling for reliability
 export async function fastExtractSocials(url: string): Promise<{ profiles: Record<string, string>, email: string | null } | null> {
     try {
+        // Try the Scrapling microservice first for best results
+        const scrapeResult = await scrapeWebsiteWithAPI(url);
+        
+        if (scrapeResult.socials.length > 0 || scrapeResult.text.length > 0) {
+            const profiles: Record<string, string> = {};
+            let email: string | null = null;
+
+            // Simple regex matchers for the results returned by Scrapling
+            const findMatch = (pattern: RegExp) => {
+                for (const link of scrapeResult.socials) {
+                    const match = link.match(pattern);
+                    if (match) return match[1] || match[0];
+                }
+                return null;
+            };
+
+            const fb = findMatch(/(https?:\/\/(?:www\.)?facebook\.com\/[^"'\s<]+)/i);
+            if (fb) profiles.facebook = fb;
+
+            const ig = findMatch(/(https?:\/\/(?:www\.)?instagram\.com\/[^"'\s<]+)/i);
+            if (ig) profiles.instagram = ig;
+
+            const li = findMatch(/(https?:\/\/(?:www\.)?(?:linkedin\.com)\/(?:company|in)\/[^"'\s<]+)/i);
+            if (li) profiles.linkedin = li;
+
+            const emailMatch = scrapeResult.text.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4})/i);
+            if (emailMatch) email = emailMatch[1];
+
+            return { profiles, email };
+        }
+
+        // Fallback to basic fetch if microservice returns empty or fails
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 6000);
 
@@ -247,11 +280,8 @@ export async function fastExtractSocials(url: string): Promise<{ profiles: Recor
 
         if (!response.ok) return null;
 
-        const html = await response.text(); // Scan full HTML
-
+        const html = await response.text();
         const profiles: Record<string, string> = {};
-        let email: string | null = null;
-
         const extractMatch = (regex: RegExp) => {
             const match = html.match(regex);
             return match ? match[1] || match[0] : null;
@@ -266,11 +296,8 @@ export async function fastExtractSocials(url: string): Promise<{ profiles: Recor
         const li = extractMatch(/(https?:\/\/(?:www\.)?(?:linkedin\.com)\/(?:company|in)\/[^"'\s<]+)/i);
         if (li) profiles.linkedin = li;
 
-        const yelp = extractMatch(/(https?:\/\/(?:www\.)?yelp\.com\/biz\/[^"'\s<]+)/i);
-        if (yelp) profiles.yelp = yelp;
-
         const emailMatch = html.match(/mailto:([a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4})/i);
-        if (emailMatch) email = emailMatch[1];
+        const email = emailMatch ? emailMatch[1] : null;
 
         return { profiles, email };
     } catch (e) {
