@@ -1,4 +1,3 @@
-import React from 'react';
 import { 
   MapPin, 
   Building2, 
@@ -10,16 +9,24 @@ import {
   CheckCircle2,
   ExternalLink,
   Globe,
-  XCircle
+  XCircle,
+  Sparkles,
+  Loader2
 } from 'lucide-react';
 import { Lead } from '@/types';
+import { useState } from 'react';
+import { enrichedSweepAction } from '@/app/actions/enrichment';
+import { toast } from 'sonner';
 
 interface LeadCardProps {
   lead: Lead;
   onClose: () => void;
 }
 
-export default function LeadCard({ lead, onClose }: LeadCardProps) {
+export default function LeadCard({ lead: initialLead, onClose }: LeadCardProps) {
+  const [lead, setLead] = useState<Lead>(initialLead);
+  const [isEnriching, setIsEnriching] = useState(false);
+
   // Use real data from the lead object
   const companyName = lead.business_name;
   const location = lead.address;
@@ -56,6 +63,26 @@ export default function LeadCard({ lead, onClose }: LeadCardProps) {
     ];
   }
 
+  const handleEnrich = async () => {
+    setIsEnriching(true);
+    try {
+      const result = await enrichedSweepAction(lead);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      if (result.data) {
+        setLead({ ...lead, ...result.data, status: (result.data as any).status || 'verified' });
+        toast.success("Lead enriched successfully!");
+      }
+    } catch (error: any) {
+      console.error("Manual enrichment failed:", error);
+      toast.error("Failed to enrich lead.");
+    } finally {
+      setIsEnriching(false);
+    }
+  };
+
   return (
     <div className="w-full h-full flex items-center justify-center p-6 bg-slate-950/50 backdrop-blur-sm relative z-[60]">
       <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-2xl text-slate-200 font-sans relative overflow-y-auto max-h-full">
@@ -91,19 +118,29 @@ export default function LeadCard({ lead, onClose }: LeadCardProps) {
         </div>
 
         {/* ACTION BUTTONS */}
-      <div className="flex gap-4 mt-6">
-        {lead.website && (
-          <a 
-            href={lead.website} 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-medium py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors border border-slate-700"
-          >
-            Visit Website
-            <ExternalLink size={16} />
-          </a>
-        )}
-      </div>
+        <div className="flex gap-4 mt-6">
+          {lead.website && (
+            <a 
+              href={lead.website} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-medium py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors border border-slate-700"
+            >
+              Visit Website
+              <ExternalLink size={16} />
+            </a>
+          )}
+          {(lead.status === 'pending' || lead.status === 'failed') && (
+            <button
+              onClick={handleEnrich}
+              disabled={isEnriching}
+              className="flex-[1.5] bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-500/10 disabled:opacity-70"
+            >
+              {isEnriching ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
+              {isEnriching ? 'Running AI...' : 'Run AI Sweep'}
+            </button>
+          )}
+        </div>
 
         {/* ENRICHMENT DATA GRID */}
         <div className="mb-6">

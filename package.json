@@ -12,7 +12,7 @@
     "@google/generative-ai": "^0.24.1",
     "@googlemaps/google-maps-services-js": "^3.4.2",
     "@supabase/ssr": "^0.8.0",
-    "@supabase/supabase-js": "^2.97.0",
+    "@supabase/supabase-js": "^2.99.1",
     "cheerio": "^1.2.0",
     "date-fns": "^4.1.0",
     "dotenv": "^17.3.1",

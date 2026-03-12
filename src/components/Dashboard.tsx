@@ -307,9 +307,11 @@ export default function Dashboard() {
                         <div>
                             <h1 className="text-2xl font-bold text-white tracking-tight">Nexus Lead Engine</h1>
                             {quota && (
-                                <div className="flex items-center gap-1.5 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-full text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-1 w-fit">
-                                    <Sparkles size={10} className="text-blue-400" />
-                                    <span>{Math.max(0, quota.credits_total - quota.credits_used)} Credits Left</span>
+                                <div className="flex items-center gap-2 px-3 py-1 bg-slate-800 rounded-full border border-slate-700 mt-2 w-fit">
+                                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                    <span className="text-[10px] text-slate-300 font-medium uppercase tracking-wider">
+                                        {Math.max(0, quota.credits_total - quota.credits_used)} Sweeps Remaining
+                                    </span>
                                 </div>
                             )}
                         </div>

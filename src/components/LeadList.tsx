@@ -4,7 +4,7 @@ import { Lead } from '@/types';
 import { Loader2, CheckCircle2, XCircle, Clock, MapPin, Globe, Phone, Mail, Linkedin, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import LeadCard from '@/components/LeadCard';
-import { runEnrichedSweep } from '@/app/actions/scrape';
+import { enrichedSweepAction } from '@/app/actions/enrichment';
 import { toast } from 'sonner';
 
 export default function LeadList({ leads, loading, isSearching, refetch }: { leads: Lead[], loading: boolean, isSearching: boolean, refetch?: () => void }) {
@@ -36,10 +36,10 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
         if (currentPage > 1) setCurrentPage(prev => prev - 1);
     };
 
-    const handleEnrich = async (leadId: string) => {
-        setEnrichingIds(prev => new Set(prev).add(leadId));
+    const handleEnrich = async (lead: Lead) => {
+        setEnrichingIds(prev => new Set(prev).add(lead.id));
         try {
-            const result = await runEnrichedSweep(leadId);
+            const result = await enrichedSweepAction(lead);
             if (result.error) {
                 toast.error(result.error);
                 return;
@@ -51,7 +51,7 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
         } finally {
             setEnrichingIds(prev => {
                 const newSet = new Set(prev);
-                newSet.delete(leadId);
+                newSet.delete(lead.id);
                 return newSet;
             });
         }
@@ -79,7 +79,7 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
 
             try {
                 // Call server action for each lead in the chunk
-                const results = await Promise.all(chunkIds.map(id => runEnrichedSweep(id)));
+                const results = await Promise.all(chunk.map(l => enrichedSweepAction(l)));
                 
                 // Check if any had errors (like quota full)
                 const errorResult = results.find(r => r.error);
