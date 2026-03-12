@@ -3,6 +3,7 @@
 import { Lead } from '@/types';
 import { Loader2, CheckCircle2, XCircle, Clock, MapPin, Globe, Phone, Mail, Linkedin, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import LeadCard from '@/components/LeadCard';
 
 export default function LeadList({ leads, loading, isSearching, refetch }: { leads: Lead[], loading: boolean, isSearching: boolean, refetch?: () => void }) {
     const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -243,140 +244,7 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
 
             {/* Slide-over Details Panel */}
             {selectedLead && (
-                <div className="absolute inset-0 bg-white z-50 flex flex-col shadow-[-10px_0_30px_rgba(0,0,0,0.05)] animate-in slide-in-from-right-full">
-                    <div className="px-6 py-5 border-b border-neutral-100 bg-neutral-50/50 flex items-center justify-between shadow-sm">
-                        <div className="flex items-center gap-3">
-                            <div className={`p-2 rounded-full bg-white border shadow-sm ${statusColors[selectedLead.status]}`}>
-                                {getStatusIcon(selectedLead.status)}
-                            </div>
-                            <div>
-                                <h2 className="font-bold text-lg text-neutral-900 tracking-tight">{selectedLead.business_name}</h2>
-                                <div className="text-xs font-semibold text-neutral-500 uppercase tracking-widest">{selectedLead.status}</div>
-                            </div>
-                        </div>
-                        <button
-                            onClick={() => setSelectedLead(null)}
-                            className="p-2 bg-white hover:bg-neutral-200 rounded-full transition-colors border shadow-sm"
-                        >
-                            <XCircle size={20} className="text-neutral-500" />
-                        </button>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
-                        <div className="space-y-4">
-                            <h4 className="text-xs font-bold text-neutral-400 tracking-wider uppercase">Business Info</h4>
-                            <div className="bg-neutral-50 p-4 rounded-xl border border-neutral-100 space-y-3 font-medium text-sm">
-                                <div className="flex items-start gap-3">
-                                    <MapPin size={16} className="text-neutral-400 mt-0.5 shrink-0" />
-                                    <span className="text-neutral-700">{selectedLead.address}</span>
-                                </div>
-                                {selectedLead.phone && (
-                                    <div className="flex items-center gap-3">
-                                        <Phone size={16} className="text-neutral-400 shrink-0" />
-                                        <span className="text-neutral-700">{selectedLead.phone}</span>
-                                    </div>
-                                )}
-                                {selectedLead.website && (
-                                    <div className="flex items-center gap-3">
-                                        <Globe size={16} className="text-neutral-400 shrink-0" />
-                                        <a href={selectedLead.website} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline truncate">
-                                            {selectedLead.website}
-                                        </a>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="space-y-4">
-                            <h4 className="text-xs font-bold text-neutral-400 tracking-wider uppercase">AI Enrichment Data</h4>
-                            <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm space-y-4">
-                                {selectedLead.status === 'researching' || enrichingIds.has(selectedLead.id) ? (
-                                    <div className="flex bg-blue-50 text-blue-700 p-4 rounded-lg items-center gap-3 text-sm font-medium">
-                                        <Loader2 size={18} className="animate-spin shrink-0" />
-                                        Gemini is currently categorizing the business and finding contact info...
-                                    </div>
-                                ) : selectedLead.status === 'pending' || selectedLead.status === 'failed' ? (
-                                    <div className="flex flex-col items-center justify-center p-6 bg-neutral-50 rounded-lg text-center gap-3 border border-neutral-100">
-                                        <div className={`w-12 h-12 rounded-full flex items-center justify-center shadow-sm border ${selectedLead.status === 'failed' ? 'bg-red-50 border-red-200 text-red-600' : 'bg-white border-neutral-200 text-blue-600'}`}>
-                                            {selectedLead.status === 'failed' ? <XCircle size={24} /> : <Sparkles size={24} />}
-                                        </div>
-                                        <div>
-                                            <h4 className="font-semibold text-neutral-900">{selectedLead.status === 'failed' ? 'Enrichment Failed' : 'Unlock Hidden Details'}</h4>
-                                            <p className="text-sm text-neutral-500 mt-1 max-w-xs mx-auto">
-                                                {selectedLead.status === 'failed' ? selectedLead.enrichment_summary || 'The AI was unable to parse this lead due to an error. You can try running it again.' : 'Deploy Gemini AI to qualify the market and find the decision makers.'}
-                                            </p>
-                                        </div>
-                                        <button
-                                            onClick={() => handleEnrich(selectedLead.id)}
-                                            className="mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-medium py-2.5 px-6 rounded-lg flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95"
-                                        >
-                                            <Sparkles size={16} />
-                                            {selectedLead.status === 'failed' ? 'Retry AI Enrichment' : 'Enrich with AI'}
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <div className="text-xs text-neutral-400 font-medium mb-1">Decision Maker</div>
-                                                <div className="font-semibold text-neutral-900 border-b border-neutral-100 pb-2">
-                                                    {selectedLead.decision_maker_name || <span className="text-neutral-300 font-normal">Not found</span>}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <div className="text-xs text-neutral-400 font-medium mb-1">Role</div>
-                                                <div className="font-semibold text-neutral-900 border-b border-neutral-100 pb-2">
-                                                    {selectedLead.decision_maker_role || <span className="text-neutral-300 font-normal">Not found</span>}
-                                                </div>
-                                            </div>
-                                            <div className="col-span-2">
-                                                <div className="text-xs text-neutral-400 font-medium mb-1">Direct Contact Email</div>
-                                                <div className="font-semibold text-neutral-900 border-b border-neutral-100 pb-2 flex items-center gap-2">
-                                                    <Mail size={14} className="text-neutral-400" />
-                                                    {selectedLead.contact_email ? (
-                                                        <a href={`mailto:${selectedLead.contact_email}`} className="text-blue-600 hover:underline">{selectedLead.contact_email}</a>
-                                                    ) : <span className="text-neutral-300 font-normal">Not found</span>}
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {selectedLead.enrichment_summary && (
-                                            <div>
-                                                <div className="text-xs text-neutral-400 font-medium mb-1.5 flex items-center gap-1.5">
-                                                    <Sparkles size={14} className="text-blue-500" />
-                                                    AI Summary
-                                                </div>
-                                                <div className="text-sm text-neutral-700 leading-relaxed bg-neutral-50 p-3 rounded-lg border border-neutral-100">
-                                                    {selectedLead.enrichment_summary}
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {selectedLead.social_profiles && Object.keys(selectedLead.social_profiles).length > 0 && (
-                                            <div className="pt-2">
-                                                <div className="text-xs text-neutral-400 font-medium mb-2">Social Profiles</div>
-                                                <div className="flex flex-wrap gap-2">
-                                                    {Object.entries(selectedLead.social_profiles).map(([network, url]) => (
-                                                        <a
-                                                            key={network}
-                                                            href={url as string}
-                                                            target="_blank"
-                                                            rel="noreferrer"
-                                                            className="px-3 py-1.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-semibold rounded-full capitalize flex items-center gap-1.5 transition-colors border border-neutral-200"
-                                                        >
-                                                            {network === 'linkedin' ? <Linkedin size={12} /> : <Globe size={12} />}
-                                                            {network}
-                                                        </a>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        )}
-                                    </>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <LeadCard lead={selectedLead} onClose={() => setSelectedLead(null)} />
             )}
         </div>
     );
