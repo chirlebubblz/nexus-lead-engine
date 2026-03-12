@@ -108,17 +108,17 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
     };
 
     const statusColors: Record<string, string> = {
-        verified: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-        researching: 'bg-blue-50 text-blue-700 border-blue-200',
-        failed: 'bg-red-50 text-red-700 border-red-200',
-        pending: 'bg-neutral-100 text-neutral-600 border-neutral-200'
+        verified: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+        researching: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+        failed: 'bg-red-500/10 text-red-400 border-red-500/20',
+        pending: 'bg-slate-800 text-slate-400 border-slate-700'
     };
 
     return (
         <div className="relative h-full flex flex-col w-full">
 
             {/* ALWAYS VISIBLE: Top Bar for Batch Actions & AI Qualification Rules */}
-            <div className="flex flex-col bg-white border-b border-neutral-200 shrink-0 z-10">
+            <div className="flex flex-col bg-slate-900 border-b border-slate-800 shrink-0 z-10">
                 <div className="p-4 flex flex-col gap-3">
 
 
@@ -129,7 +129,7 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                             <select
                                 value={batchSize}
                                 onChange={(e) => setBatchSize(e.target.value)}
-                                className="bg-neutral-50 border border-neutral-200 text-sm rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                className="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                                 disabled={isBatchEnriching}
                             >
                                 <option value="5">Enrich 5 Leads</option>
@@ -141,7 +141,7 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                             <button
                                 onClick={handleBatchEnrich}
                                 disabled={isBatchEnriching || leads.filter(l => l.status === (batchSize === 'failed' ? 'failed' : 'pending')).length === 0}
-                                className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="flex items-center gap-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {isBatchEnriching ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
                                 {isBatchEnriching ? 'Running AI...' : 'Run AI'}
@@ -154,14 +154,14 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                 {isBatchEnriching && (
                     <div className="px-4 pb-4 animate-in fade-in slide-in-from-top-2">
                         <div className="flex justify-between items-center mb-1.5">
-                            <span className="text-xs font-semibold text-blue-600 flex items-center gap-1.5">
+                            <span className="text-xs font-semibold text-blue-400 flex items-center gap-1.5">
                                 <Sparkles size={12} /> AI Enrichment in Progress
                             </span>
-                            <span className="text-xs font-bold text-neutral-600">
+                            <span className="text-xs font-bold text-slate-400">
                                 {enrichProgress.current} / {enrichProgress.total}
                             </span>
                         </div>
-                        <div className="w-full bg-neutral-100 rounded-full h-1.5 overflow-hidden">
+                        <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
                             <div
                                 className="bg-gradient-to-r from-blue-500 to-indigo-500 h-1.5 rounded-full transition-all duration-500"
                                 style={{ width: `${(enrichProgress.current / enrichProgress.total) * 100}%` }}
@@ -172,28 +172,28 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
             </div>
 
             {/* List of Leads */}
-            <div className="flex-1 overflow-y-auto w-full flex flex-col shadow-inner bg-white">
+            <div className="flex-1 overflow-y-auto w-full flex flex-col shadow-inner bg-slate-900">
                 {loading && leads.length === 0 ? (
-                    <div className="p-8 text-center text-neutral-400 animate-pulse flex-1">Loading leads database...</div>
+                    <div className="p-8 text-center text-slate-500 animate-pulse flex-1">Loading leads database...</div>
                 ) : !loading && leads.length === 0 && !isSearching ? (
-                    <div className="h-full flex flex-col items-center justify-center p-8 text-neutral-400 flex-1">
-                        <MapPin size={48} className="mb-4 text-neutral-200" />
-                        <p className="text-center font-medium text-neutral-500">No leads found yet.</p>
-                        <p className="text-center text-sm mt-1">Move the map and click "Search This Area" to begin.</p>
+                    <div className="h-full flex flex-col items-center justify-center p-8 text-slate-500 flex-1">
+                        <MapPin size={48} className="mb-4 text-slate-700" />
+                        <p className="text-center font-medium text-slate-400">No leads found yet.</p>
+                        <p className="text-center text-sm mt-1 text-slate-500">Move the map and click "Search This Area" to begin.</p>
                     </div>
                 ) : (
                     currentLeads.map((lead) => (
                         <div
                             key={lead.id}
                             onClick={() => setSelectedLead(lead)}
-                            className="group px-6 py-4 border-b border-neutral-200/60 hover:bg-neutral-50 cursor-pointer transition-colors"
+                            className="group px-6 py-4 border-b border-slate-800 hover:bg-slate-800/50 cursor-pointer transition-colors"
                         >
                             <div className="flex items-start justify-between">
                                 <div className="w-[80%]">
-                                    <h3 className="font-semibold text-neutral-900 group-hover:text-blue-600 transition-colors truncate">
+                                    <h3 className="font-semibold text-slate-200 group-hover:text-blue-400 transition-colors truncate">
                                         {lead.business_name}
                                     </h3>
-                                    <p className="text-xs text-neutral-500 truncate mt-1">{lead.address}</p>
+                                    <p className="text-xs text-slate-500 truncate mt-1">{lead.address}</p>
                                 </div>
                                 <div className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${enrichingIds.has(lead.id) ? statusColors.researching : statusColors[lead.status]}`}>
                                     {enrichingIds.has(lead.id) ? <Loader2 className="animate-spin text-blue-500" size={16} /> : getStatusIcon(lead.status)}
@@ -202,11 +202,11 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
                             </div>
 
                             {lead.status === 'verified' && (
-                                <div className="mt-3 flex items-center gap-4 text-xs font-medium text-neutral-600 bg-neutral-50/50 p-2 rounded-md border border-neutral-100">
+                                <div className="mt-3 flex items-center gap-4 text-xs font-medium text-slate-400 bg-slate-800/50 p-2 rounded-md border border-slate-700/50">
                                     {lead.decision_maker_name ? (
-                                        <span className="flex items-center gap-1.5 text-neutral-800"><CheckCircle2 size={13} className="text-emerald-500" />{lead.decision_maker_name}</span>
+                                        <span className="flex items-center gap-1.5 text-slate-300"><CheckCircle2 size={13} className="text-emerald-500" />{lead.decision_maker_name}</span>
                                     ) : (
-                                        <span className="text-neutral-400">No contact found</span>
+                                        <span className="text-slate-500">No contact found</span>
                                     )}
 
                                     {lead.contact_email && (
@@ -221,21 +221,21 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
 
             {/* Pagination Controls Bar */}
             {!loading && leads.length > leadsPerPage && (
-                <div className="bg-white border-t border-neutral-200 p-3 flex items-center justify-between shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-10">
+                <div className="bg-slate-900 border-t border-slate-800 p-3 flex items-center justify-between shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.2)] z-10">
                     <button
                         onClick={handlePrevPage}
                         disabled={currentPage === 1}
-                        className="p-1.5 rounded bg-neutral-100 text-neutral-600 hover:bg-neutral-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        className="p-1.5 rounded bg-slate-800 text-slate-400 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                         <ChevronLeft size={18} />
                     </button>
-                    <span className="text-xs font-semibold text-neutral-600">
-                        Page {currentPage} of {totalPages} <span className="text-neutral-400 font-normal ml-1">({leads.length} total)</span>
+                    <span className="text-xs font-semibold text-slate-400">
+                        Page {currentPage} of {totalPages} <span className="text-slate-500 font-normal ml-1">({leads.length} total)</span>
                     </span>
                     <button
                         onClick={handleNextPage}
                         disabled={currentPage === totalPages}
-                        className="p-1.5 rounded bg-neutral-100 text-neutral-600 hover:bg-neutral-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        className="p-1.5 rounded bg-slate-800 text-slate-400 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                         <ChevronRight size={18} />
                     </button>

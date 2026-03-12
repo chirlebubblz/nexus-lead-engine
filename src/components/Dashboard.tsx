@@ -280,43 +280,43 @@ export default function Dashboard() {
     };
 
     return (
-        <div className="flex h-screen w-full bg-neutral-100 overflow-hidden relative">
+        <div className="flex h-screen w-full bg-slate-950 overflow-hidden relative">
 
-            <div className="w-1/3 min-w-[420px] h-full flex flex-col bg-white border-r border-neutral-200 z-10 shadow-xl">
+            <div className="w-1/3 min-w-[420px] h-full flex flex-col bg-slate-900 border-r border-slate-800 z-10 shadow-2xl">
 
-                <div className="p-6 border-b border-neutral-100 bg-white shrink-0">
+                <div className="p-6 border-b border-slate-800 bg-slate-900 shrink-0">
                     <div className="flex items-center justify-between">
-                        <h1 className="text-2xl font-bold text-neutral-900 tracking-tight">Nexus Lead Engine</h1>
-                        <Link href="/login" className="flex items-center gap-1 text-xs font-medium text-neutral-400 hover:text-blue-600 transition-colors" title="Admin Login">
+                        <h1 className="text-2xl font-bold text-white tracking-tight">Nexus Lead Engine</h1>
+                        <Link href="/login" className="flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-blue-400 transition-colors" title="Admin Login">
                             <Lock size={14} />
                             Admin
                         </Link>
                     </div>
 
-                    <div className="flex bg-neutral-100 p-1 rounded-lg mt-4 mb-4">
+                    <div className="flex bg-slate-950 p-1 rounded-lg mt-4 mb-4 border border-slate-800">
                         <button
                             onClick={() => setActiveTab('local')}
-                            className={`flex-1 py-1.5 text-sm font-medium rounded-md flex items-center justify-center gap-2 transition-all ${activeTab === 'local' ? 'bg-white text-blue-600 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
+                            className={`flex-1 py-1.5 text-sm font-medium rounded-md flex items-center justify-center gap-2 transition-all ${activeTab === 'local' ? 'bg-slate-800 text-blue-400 border border-slate-700 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
                         >
                             <MapIcon size={16} /> Local
                         </button>
                         <button
                             onClick={() => setActiveTab('hopper')}
-                            className={`flex-1 py-1.5 text-sm font-medium rounded-md flex items-center justify-center gap-2 transition-all ${activeTab === 'hopper' ? 'bg-white text-blue-600 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
+                            className={`flex-1 py-1.5 text-sm font-medium rounded-md flex items-center justify-center gap-2 transition-all ${activeTab === 'hopper' ? 'bg-slate-800 text-blue-400 border border-slate-700 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
                         >
                             <Globe size={16} /> Macro Sweep
                         </button>
                     </div>
 
                     <div className="relative flex items-center mb-4">
-                        <Search className="absolute left-3 text-neutral-400" size={18} />
+                        <Search className="absolute left-3 text-slate-500" size={18} />
                         <input
                             type="text"
                             value={query}
                             onChange={(e) => setQuery(e.target.value)}
                             placeholder="Industry (e.g. cleaning companies)"
                             disabled={isSearching || isHopping}
-                            className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium disabled:opacity-60"
+                            className="w-full pl-10 pr-4 py-2.5 bg-slate-800/50 border border-slate-700 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium disabled:opacity-60"
                         />
                     </div>
 
@@ -325,7 +325,7 @@ export default function Dashboard() {
                         <button
                             onClick={handleExportCSV}
                             disabled={!leads || leads.length === 0}
-                            className="text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold px-3 py-1.5 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                            className="text-xs bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 font-bold px-3 py-1.5 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                         >
                             ↓ Export {leads?.length || 0} Leads to CSV
                         </button>
@@ -335,7 +335,7 @@ export default function Dashboard() {
                     {activeTab === 'local' && (
                         <div className="space-y-3 animate-in fade-in">
                             <div className="relative flex items-center" ref={dropdownRef}>
-                                <MapPin className="absolute left-3 text-neutral-400" size={18} />
+                                <MapPin className="absolute left-3 text-slate-500" size={18} />
                                 <input
                                     type="text"
                                     value={locationText}
@@ -343,34 +343,34 @@ export default function Dashboard() {
                                     onFocus={() => setShowDropdown(true)}
                                     disabled={isSearching || isHopping}
                                     placeholder="Location (Country, State, City)"
-                                    className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium disabled:opacity-60"
+                                    className="w-full pl-10 pr-4 py-2.5 bg-slate-800/50 border border-slate-700 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium disabled:opacity-60"
                                 />
                                 {showDropdown && predictions.length > 0 && (
-                                    <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-neutral-200 rounded-lg shadow-xl max-h-60 overflow-y-auto z-[9999]">
+                                    <div className="absolute top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl max-h-60 overflow-y-auto z-[9999]">
                                         {predictions.map((p) => (
                                             <button
                                                 key={p.place_id}
                                                 onClick={() => handleSelectLocation(p.place_id, p.description)}
-                                                className="w-full text-left px-4 py-3 hover:bg-neutral-50 border-b border-neutral-100 last:border-0 focus:outline-none"
+                                                className="w-full text-left px-4 py-3 hover:bg-slate-700 border-b border-slate-700/50 last:border-0 focus:outline-none transition-colors"
                                             >
-                                                <div className="text-sm font-medium text-neutral-900">{p.main_text}</div>
-                                                {p.secondary_text && <div className="text-xs text-neutral-500 mt-0.5">{p.secondary_text}</div>}
+                                                <div className="text-sm font-medium text-slate-200">{p.main_text}</div>
+                                                {p.secondary_text && <div className="text-xs text-slate-500 mt-0.5">{p.secondary_text}</div>}
                                             </button>
                                         ))}
                                     </div>
                                 )}
                             </div>
 
-                            <div className="flex items-center justify-between bg-neutral-50 p-3 rounded-lg border border-neutral-200">
-                                <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-neutral-700">
+                            <div className="flex items-center justify-between bg-slate-800/30 p-3 rounded-lg border border-slate-700/50">
+                                <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-slate-300 hover:text-white transition-colors">
                                     <input
                                         type="checkbox"
                                         checked={isBulkMode}
                                         onChange={(e) => setIsBulkMode(e.target.checked)}
                                         disabled={isSearching || isHopping}
-                                        className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer disabled:opacity-60"
+                                        className="rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-blue-500/50 focus:ring-offset-slate-900 w-4 h-4 cursor-pointer disabled:opacity-60"
                                     />
-                                    <Grid3X3 size={16} className={isBulkMode ? "text-blue-600" : "text-neutral-400"} />
+                                    <Grid3X3 size={16} className={isBulkMode ? "text-blue-400" : "text-slate-500"} />
                                     Bulk Grid Sweep
                                 </label>
                                 {isBulkMode && (
@@ -378,7 +378,7 @@ export default function Dashboard() {
                                         value={gridSize}
                                         onChange={(e) => setGridSize(Number(e.target.value))}
                                         disabled={isSearching || isHopping}
-                                        className="bg-white border border-neutral-200 text-xs rounded px-2 py-1 outline-none disabled:opacity-60"
+                                        className="bg-slate-800 border-slate-700 text-slate-300 text-xs rounded px-2 py-1 outline-none disabled:opacity-60 focus:ring-1 focus:ring-blue-500/50"
                                     >
                                         <option value={3}>3x3 Grid (9 searches)</option>
                                         <option value={5}>5x5 Grid (25 searches)</option>
@@ -388,7 +388,7 @@ export default function Dashboard() {
                             </div>
 
                             {isSearching ? (
-                                <button onClick={stopSweep} className="w-full mt-2 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition-colors">
+                                <button onClick={stopSweep} className="w-full mt-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition-colors">
                                     <XCircle size={18} /> Stop Search
                                 </button>
                             ) : (
@@ -409,7 +409,7 @@ export default function Dashboard() {
                                     value={selectedCountry}
                                     onChange={(e) => setSelectedCountry(e.target.value)}
                                     disabled={isHopping || isSearching}
-                                    className="w-1/2 px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-medium disabled:opacity-60"
+                                    className="w-1/2 px-3 py-2 bg-slate-800/50 border border-slate-700 text-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-medium disabled:opacity-60"
                                 >
                                     {availableCountries.map(country => (
                                         <option key={country} value={country}>{country}</option>
@@ -420,7 +420,7 @@ export default function Dashboard() {
                                     value={selectedState}
                                     onChange={(e) => setSelectedState(e.target.value)}
                                     disabled={isHopping || isSearching || availableStates.length === 0}
-                                    className="w-1/2 px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-medium disabled:opacity-60"
+                                    className="w-1/2 px-3 py-2 bg-slate-800/50 border border-slate-700 text-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-medium disabled:opacity-60"
                                 >
                                     {availableStates.map(state => (
                                         <option key={state} value={state}>{state}</option>
@@ -428,19 +428,19 @@ export default function Dashboard() {
                                 </select>
                             </div>
 
-                            <div className="bg-white border border-neutral-200 rounded-lg p-3 max-h-40 overflow-y-auto shadow-inner">
-                                <div className="text-xs font-bold text-neutral-400 mb-2 uppercase tracking-wider">
+                            <div className="bg-slate-800/30 border border-slate-700/50 rounded-lg p-3 max-h-40 overflow-y-auto">
+                                <div className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">
                                     {selectedState} Cities ({selectedCities.length})
                                 </div>
                                 <div className="grid grid-cols-2 gap-2">
                                     {availableCities.map(city => (
-                                        <label key={city.name} className="flex items-center gap-2 text-sm text-neutral-700 cursor-pointer">
+                                        <label key={city.name} className="flex items-center gap-2 text-sm text-slate-300 hover:text-white transition-colors cursor-pointer">
                                             <input
                                                 type="checkbox"
                                                 checked={selectedCities.includes(city.name)}
                                                 onChange={() => toggleCitySelection(city.name)}
                                                 disabled={isHopping || isSearching}
-                                                className="rounded text-blue-600 focus:ring-blue-500"
+                                                className="rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-blue-500/50 focus:ring-offset-slate-900"
                                             />
                                             {city.name}
                                         </label>
@@ -449,7 +449,7 @@ export default function Dashboard() {
                             </div>
 
                             {isHopping ? (
-                                <button onClick={stopSweep} className="w-full mt-2 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition-colors">
+                                <button onClick={stopSweep} className="w-full mt-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition-colors">
                                     <XCircle size={18} /> Abort Macro Sweep
                                 </button>
                             ) : (
@@ -461,7 +461,7 @@ export default function Dashboard() {
                     )}
                 </div>
 
-                <div className="flex-1 overflow-auto bg-neutral-50 flex flex-col">
+                <div className="flex-1 overflow-auto bg-slate-950 flex flex-col">
                     <LeadList leads={leads} loading={loading} isSearching={isSearching || isHopping} refetch={refetch} />
                 </div>
             </div>
@@ -476,39 +476,39 @@ export default function Dashboard() {
 
                 {/* Local Search Progress */}
                 {isSearching && isBulkMode && activeTab === 'local' && (
-                    <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-96 bg-white/95 backdrop-blur rounded-xl shadow-2xl border border-blue-100 p-5 z-[1000]">
+                    <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-96 bg-slate-900/95 border border-slate-700/50 backdrop-blur-md rounded-xl shadow-2xl p-5 z-[1000]">
                         <div className="flex justify-between items-center mb-2">
-                            <h3 className="font-bold text-neutral-900 flex items-center gap-2">
-                                <Loader2 size={16} className="animate-spin text-blue-600" /> Sweeping Grid...
+                            <h3 className="font-bold text-slate-100 flex items-center gap-2">
+                                <Loader2 size={16} className="animate-spin text-blue-500" /> Sweeping Grid...
                             </h3>
-                            <span className="text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-1 rounded-full">
+                            <span className="text-xs font-semibold text-blue-400 bg-blue-500/10 px-2 py-1 rounded-full">
                                 {sweepProgress.current} / {sweepProgress.total}
                             </span>
                         </div>
-                        <div className="w-full bg-neutral-100 rounded-full h-2 mb-2 overflow-hidden">
-                            <div className="bg-blue-600 h-2 rounded-full transition-all duration-300" style={{ width: `${(sweepProgress.current / sweepProgress.total) * 100}%` }}></div>
+                        <div className="w-full bg-slate-800 rounded-full h-2 mb-2 overflow-hidden border border-slate-700">
+                            <div className="bg-blue-500 h-2 rounded-full transition-all duration-300" style={{ width: `${(sweepProgress.current / sweepProgress.total) * 100}%` }}></div>
                         </div>
                     </div>
                 )}
 
                 {/* Macro Sweep Progress */}
                 {isHopping && activeTab === 'hopper' && (
-                    <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-96 bg-white/95 backdrop-blur rounded-xl shadow-2xl border border-indigo-100 p-5 z-[1000]">
+                    <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-96 bg-slate-900/95 border border-slate-700/50 backdrop-blur-md rounded-xl shadow-2xl p-5 z-[1000]">
                         <div className="flex justify-between items-center mb-2">
-                            <h3 className="font-bold text-neutral-900 flex items-center gap-2">
-                                <Loader2 size={16} className="animate-spin text-indigo-600" /> Macro Sweep Active...
+                            <h3 className="font-bold text-slate-100 flex items-center gap-2">
+                                <Loader2 size={16} className="animate-spin text-indigo-400" /> Macro Sweep Active...
                             </h3>
-                            <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-full">
+                            <span className="text-xs font-semibold text-indigo-400 bg-indigo-500/10 px-2 py-1 rounded-full">
                                 City {hopperProgress.cityIndex} of {hopperProgress.totalCities}
                             </span>
                         </div>
-                        <p className="text-sm font-medium text-neutral-700 mb-3 truncate">
-                            📍 Sweeping <span className="font-bold text-indigo-600">{hopperProgress.currentCity}</span> ({hopperProgress.currentGrid}/{hopperProgress.totalGrid})
+                        <p className="text-sm font-medium text-slate-400 mb-3 truncate">
+                            📍 Sweeping <span className="font-bold text-indigo-400">{hopperProgress.currentCity}</span> ({hopperProgress.currentGrid}/{hopperProgress.totalGrid})
                         </p>
-                        <div className="w-full bg-neutral-100 rounded-full h-2 mb-2 overflow-hidden">
-                            <div className="bg-indigo-600 h-2 rounded-full transition-all duration-300" style={{ width: `${(hopperProgress.cityIndex / hopperProgress.totalCities) * 100}%` }}></div>
+                        <div className="w-full bg-slate-800 rounded-full h-2 mb-2 overflow-hidden border border-slate-700">
+                            <div className="bg-indigo-500 h-2 rounded-full transition-all duration-300" style={{ width: `${(hopperProgress.cityIndex / hopperProgress.totalCities) * 100}%` }}></div>
                         </div>
-                        <p className="text-xs text-neutral-500 text-center mt-2">
+                        <p className="text-xs text-slate-500 text-center mt-2">
                             Keep this tab open. Map coordinates are shifting automatically.
                         </p>
                     </div>
