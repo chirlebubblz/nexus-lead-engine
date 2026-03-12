@@ -43,56 +43,27 @@ async function searchGoogle(query: string) {
     }
 }
 
-async function scrapeWebsiteWithAPI(url: string): Promise<string> {
+async function scrapeWebsiteWithAPI(url: string): Promise<{text: string, socials: string[]}> {
     try {
-        // Calling our local Python Scrapling Microservice
         const response = await fetch(`http://127.0.0.1:8000/api/scrape`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url })
         });
         
         if (!response.ok) {
             console.warn(`Scrapling API failed to fetch ${url}`);
-            return '';
+            return { text: '', socials: [] };
         }
         
         const data = await response.json();
-        return data.text || '';
+        return { 
+            text: data.text || '', 
+            socials: data.socials || [] 
+        };
     } catch (error) {
         console.warn("Local Scrapling microservice is not running or failed.", error);
-        return '';
-    }
-}
-
-async function extractRawSocials(url: string): Promise<string[]> {
-    try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 6000);
-
-        const res = await fetch(url, {
-            signal: controller.signal,
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
-        });
-        clearTimeout(timeoutId);
-
-        if (!res.ok) return [];
-        const html = await res.text();
-
-        const socials = new Set<string>();
-        const regex = /href=["'](https?:\/\/(www\.)?(facebook|linkedin|instagram|twitter|x|youtube|tiktok|yelp)\.com\/[^"']+)["']/gi;
-        let match;
-        while ((match = regex.exec(html)) !== null) {
-            let cleanUrl = match[1].split('?')[0].replace(/\/$/, '');
-            if (!cleanUrl.includes('/share') && !cleanUrl.includes('/intent')) {
-                socials.add(cleanUrl);
-            }
-        }
-        return Array.from(socials);
-    } catch (error) {
-        return [];
+        return { text: '', socials: [] };
     }
 }
 // --- PRONG 2: The SERP Agent ---
@@ -137,13 +108,10 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
     let rawSocialLinks: string[] = [];
 
     if (websiteUrl) {
-        // PRONG 1: extractRawSocials grabs the company footer links concurrently with the Scrapling sweep
-        const [jinaResult, socialResult] = await Promise.all([
-            scrapeWebsiteWithAPI(websiteUrl as string),
-            extractRawSocials(websiteUrl as string)
-        ]);
-        scrapedText = jinaResult;
-        rawSocialLinks = socialResult;
+        // Just one call to our unblockable scraper to get everything
+        const scrapeResult = await scrapeWebsiteWithAPI(websiteUrl as string);
+        scrapedText = scrapeResult.text;
+        rawSocialLinks = scrapeResult.socials;
     }
 
     const searchResults = await searchGoogle(`"${lead.business_name}" ${lead.address} LinkedIn OR Facebook OR Instagram OR official website`);
@@ -152,12 +120,10 @@ export async function processEnrichment(lead: Lead): Promise<Partial<Lead>> {
         for (const item of searchResults) {
             if (!websiteUrl && !item.link.includes('linkedin.com') && !item.link.includes('facebook.com') && !item.link.includes('instagram.com') && !item.link.includes('google.com')) {
                 websiteUrl = item.link;
-                const [jinaResult, socialResult] = await Promise.all([
-                    scrapeWebsiteWithAPI(websiteUrl as string),
-                    extractRawSocials(websiteUrl as string)
-                ]);
-                scrapedText = jinaResult;
-                rawSocialLinks = socialResult;
+                // Just one call to our unblockable scraper to get everything
+                const scrapeResult = await scrapeWebsiteWithAPI(websiteUrl as string);
+                scrapedText = scrapeResult.text;
+                rawSocialLinks = scrapeResult.socials;
             }
         }
         searchContext = searchResults.map((item: any) => `${item.title}: ${item.snippet} (${item.link})`).join('\n');
