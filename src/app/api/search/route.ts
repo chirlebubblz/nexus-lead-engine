@@ -35,7 +35,7 @@ export async function POST(request: Request) {
         const serviceSupabase = getServiceSupabase();
         const today = new Date().toISOString().split('T')[0];
         let currentFetched = 0;
-        const GUEST_DAILY_LIMIT = 100;
+        const GUEST_DAILY_LIMIT = 20;
 
         if (!isAdmin) {
             const { data: quotaTracker } = await serviceSupabase
