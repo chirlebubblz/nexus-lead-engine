@@ -91,19 +91,19 @@ export default function LeadCard({ lead, onClose }: LeadCardProps) {
         </div>
 
         {/* ACTION BUTTONS */}
-        <div className="flex gap-3 mb-6 pb-6 border-b border-slate-800 mt-6">
-          <a  
-            href={lead.website || '#'} 
+      <div className="flex gap-4 mt-6">
+        {lead.website && (
+          <a 
+            href={lead.website} 
             target="_blank" 
-            rel="noreferrer"
-            className={`flex-1 flex justify-center items-center gap-2 bg-slate-800 ${lead.website ? 'hover:bg-slate-700 text-white' : 'text-slate-500 cursor-not-allowed opacity-70'} py-2.5 rounded-lg text-sm font-medium transition-colors border border-slate-700`}
+            rel="noopener noreferrer"
+            className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-medium py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-colors border border-slate-700"
           >
-            <Globe size={16} /> Visit Website
+            Visit Website
+            <ExternalLink size={16} />
           </a>
-          <button className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2.5 rounded-lg text-sm font-medium transition-colors shadow-[0_0_15px_rgba(37,99,235,0.3)]">
-            Push to CRM
-          </button>
-        </div>
+        )}
+      </div>
 
         {/* ENRICHMENT DATA GRID */}
         <div className="mb-6">
