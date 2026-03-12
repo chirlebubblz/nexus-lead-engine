@@ -54,6 +54,21 @@ export async function fetchAllLeads(): Promise<Lead[]> {
     return data || [];
 }
 
+export async function getLeadById(id: string): Promise<Lead | null> {
+    const { data, error } = await supabase
+        .from('leads')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+    if (error) {
+        console.error('Error fetching lead by ID:', error);
+        return null;
+    }
+
+    return data;
+}
+
 export async function deleteAllLeads(): Promise<void> {
     const serviceClient = getServiceSupabase();
     const { error } = await serviceClient

@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useLeads } from '@/hooks/useLeads';
+import { supabase } from '@/lib/supabase';
 import MapWrapper from '@/components/MapWrapper';
 import LeadList from '@/components/LeadList';
-import { Search, MapPin, Grid3X3, XCircle, Loader2, Map as MapIcon, Layers, Globe, Lock } from 'lucide-react';
+import { Search, MapPin, Grid3X3, XCircle, Loader2, Map as MapIcon, Layers, Globe, Lock, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import Papa from 'papaparse';
 import { LOCATION_DATA } from '@/data/locations';
@@ -14,6 +15,7 @@ export default function Dashboard() {
     const { leads, loading, refetch } = useLeads();
     const [query, setQuery] = useState('cleaning companies');
     const [activeTab, setActiveTab] = useState<'local' | 'hopper'>('local');
+    const [quota, setQuota] = useState<{ credits_total: number, credits_used: number } | null>(null);
 
     // --- LOCAL SEARCH STATES ---
     const [locationText, setLocationText] = useState('Los Angeles, CA, USA');
@@ -55,6 +57,22 @@ export default function Dashboard() {
         const cities = LOCATION_DATA[selectedCountry]?.[selectedState] || [];
         setSelectedCities(cities.map(c => c.name));
     }, [selectedCountry, selectedState]);
+
+    // --- QUOTA FETCHING ---
+    useEffect(() => {
+        const fetchQuota = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                const { data } = await supabase
+                    .from('user_quotas')
+                    .select('credits_total, credits_used')
+                    .eq('user_id', user.id)
+                    .single();
+                if (data) setQuota(data);
+            }
+        };
+        fetchQuota();
+    }, []);
 
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
@@ -286,7 +304,15 @@ export default function Dashboard() {
 
                 <div className="p-6 border-b border-slate-800 bg-slate-900 shrink-0">
                     <div className="flex items-center justify-between">
-                        <h1 className="text-2xl font-bold text-white tracking-tight">Nexus Lead Engine</h1>
+                        <div>
+                            <h1 className="text-2xl font-bold text-white tracking-tight">Nexus Lead Engine</h1>
+                            {quota && (
+                                <div className="flex items-center gap-1.5 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-full text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-1 w-fit">
+                                    <Sparkles size={10} className="text-blue-400" />
+                                    <span>{Math.max(0, quota.credits_total - quota.credits_used)} Credits Left</span>
+                                </div>
+                            )}
+                        </div>
                         <Link href="/login" className="flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-blue-400 transition-colors" title="Admin Login">
                             <Lock size={14} />
                             Admin

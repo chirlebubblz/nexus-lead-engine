@@ -4,6 +4,8 @@ import { Lead } from '@/types';
 import { Loader2, CheckCircle2, XCircle, Clock, MapPin, Globe, Phone, Mail, Linkedin, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import LeadCard from '@/components/LeadCard';
+import { runEnrichedSweep } from '@/app/actions/scrape';
+import { toast } from 'sonner';
 
 export default function LeadList({ leads, loading, isSearching, refetch }: { leads: Lead[], loading: boolean, isSearching: boolean, refetch?: () => void }) {
     const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -37,15 +39,15 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
     const handleEnrich = async (leadId: string) => {
         setEnrichingIds(prev => new Set(prev).add(leadId));
         try {
-            const res = await fetch('/api/enrich', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ leadIds: [leadId] }),
-            });
-            if (!res.ok) throw new Error('Enrichment failed');
+            const result = await runEnrichedSweep(leadId);
+            if (result.error) {
+                toast.error(result.error);
+                return;
+            }
             if (refetch) refetch();
-        } catch (error) {
+        } catch (error: any) {
             console.error('Failed to trigger enrichment:', error);
+            toast.error(error.message || 'Enrichment failed');
         } finally {
             setEnrichingIds(prev => {
                 const newSet = new Set(prev);
@@ -76,11 +78,16 @@ export default function LeadList({ leads, loading, isSearching, refetch }: { lea
             setEnrichingIds(prev => new Set([...prev, ...chunkIds]));
 
             try {
-                await fetch('/api/enrich', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ leadIds: chunkIds }),
-                });
+                // Call server action for each lead in the chunk
+                const results = await Promise.all(chunkIds.map(id => runEnrichedSweep(id)));
+                
+                // Check if any had errors (like quota full)
+                const errorResult = results.find(r => r.error);
+                if (errorResult) {
+                    toast.error(errorResult.error);
+                    // Stop batch processing if we hit a quota error
+                    break;
+                }
 
                 if (refetch) refetch();
             } catch (error) {
