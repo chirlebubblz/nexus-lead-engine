@@ -12,30 +12,45 @@ export async function enrichedSweepAction(lead: Lead) {
   
   // 1. Get current user
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: "Please log in." }
+  if (!user) return { error: "Please log in to enrich leads." }
 
-  // 2. Check Quota
-  const { data: quota, error: quotaErr } = await supabase
-    .from('user_quotas')
-    .select('*')
-    .eq('user_id', user.id)
-    .single()
+  // 1b. Role Logic - check if Admin
+  const isAdmin = user.email === 'jeraf@gmail.com' // Adjust to your admin email
 
-  if (quotaErr || !quota) return { error: "Could not find quota profile." }
-  
-  if (quota.credits_used >= quota.credits_total) {
-    return { error: "Out of credits! Upgrade to Pro for more sweeps." }
+  if (!isAdmin) {
+    // 2. Check Quota for Guests
+    const { data: quota, error: quotaErr } = await supabase
+      .from('user_quotas')
+      .select('*')
+      .eq('user_id', user.id)
+      .single()
+
+    if (quotaErr || !quota) return { error: "Could not find quota profile. Please contact support." }
+    
+    if (quota.credits_used >= quota.credits_total) {
+      return { error: "Out of credits! Register for a Pro account for more sweeps." }
+    }
   }
 
   // 3. Run the Scraper (Prong 1 & 2)
   try {
     const enrichedData = await processEnrichment(lead)
     
-    // 4. If successful, increment the used credits
-    await supabase
-      .from('user_quotas')
-      .update({ credits_used: quota.credits_used + 1 })
-      .eq('user_id', user.id)
+    // 4. If successful, increment the used credits (Guests only)
+    if (!isAdmin) {
+      const { data: quota } = await supabase
+        .from('user_quotas')
+        .select('credits_used')
+        .eq('user_id', user.id)
+        .single()
+      
+      if (quota) {
+        await supabase
+          .from('user_quotas')
+          .update({ credits_used: quota.credits_used + 1 })
+          .eq('user_id', user.id)
+      }
+    }
 
     return { data: enrichedData }
   } catch (err) {

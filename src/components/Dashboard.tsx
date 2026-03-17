@@ -16,6 +16,7 @@ export default function Dashboard() {
     const [query, setQuery] = useState('cleaning companies');
     const [activeTab, setActiveTab] = useState<'local' | 'hopper'>('local');
     const [quota, setQuota] = useState<{ credits_total: number, credits_used: number } | null>(null);
+    const [user, setUser] = useState<any>(null);
 
     // --- LOCAL SEARCH STATES ---
     const [locationText, setLocationText] = useState('Los Angeles, CA, USA');
@@ -60,8 +61,9 @@ export default function Dashboard() {
 
     // --- QUOTA FETCHING ---
     useEffect(() => {
-        const fetchQuota = async () => {
+        const fetchUserData = async () => {
             const { data: { user } } = await supabase.auth.getUser();
+            setUser(user);
             if (user) {
                 const { data } = await supabase
                     .from('user_quotas')
@@ -71,7 +73,13 @@ export default function Dashboard() {
                 if (data) setQuota(data);
             }
         };
-        fetchQuota();
+        fetchUserData();
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            setUser(session?.user ?? null);
+        });
+
+        return () => subscription.unsubscribe();
     }, []);
 
     useEffect(() => {
@@ -315,10 +323,21 @@ export default function Dashboard() {
                                 </div>
                             )}
                         </div>
-                        <Link href="/login" className="flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-blue-400 transition-colors" title="Admin Login">
-                            <Lock size={14} />
-                            Admin
-                        </Link>
+                        {user ? (
+                            <Link href="/login" className="flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-blue-400 transition-colors" title="Account settings">
+                                <Lock size={14} />
+                                {user.email === 'jeraf@gmail.com' ? 'Admin' : 'Account'}
+                            </Link>
+                        ) : (
+                            <div className="flex gap-2">
+                                <Link href="/login" className="px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white border border-slate-700 rounded-md transition-colors">
+                                    Login
+                                </Link>
+                                <Link href="/register" className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors shadow-lg shadow-blue-500/10">
+                                    Sign Up
+                                </Link>
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex bg-slate-950 p-1 rounded-lg mt-4 mb-4 border border-slate-800">
